@@ -145,10 +145,10 @@ Config load_configuration(const std::string& config_file_path) {
 }
 
 
-// --- Validation Logic --- // 修改点：regex 对象改为 static const
+// --- Validation Logic --- //
 void validate_date_line(const std::string& line, int line_num, DateBlock& current_block, std::set<Error>& errors) {
     current_block.date_line_num = line_num;
-    static const std::regex date_regex("^Date:(\\d{8})$"); // 改为 static const
+    static const std::regex date_regex("^Date:(\\d{8})$");
     std::smatch match;
     if (std::regex_match(line, match, date_regex)) {
         current_block.date_str = match[1].str();
@@ -200,130 +200,166 @@ void validate_remark_line(const std::string& line, int line_num, DateBlock& curr
     current_block.remark_str = line;
 }
 
-// MODIFIED FUNCTION
-void validate_activity_line(const std::string& line, int line_num, const Config& config, DateBlock& current_block, std::set<Error>& errors) {
+
+// Helper function 1: Parse overall activity line format
+bool parse_activity_line_format(const std::string& line, int line_num,
+                                std::string& start_time_str, std::string& end_time_str, std::string& activity_text,
+                                std::set<Error>& errors) {
     static const std::regex activity_regex("^(\\d{2}:\\d{2})~(\\d{2}:\\d{2})(.+)$");
     std::smatch match;
-
     if (std::regex_match(line, match, activity_regex)) {
-        std::string start_time_str = match[1].str();
-        std::string end_time_str = match[2].str();
-        std::string activity_text = trim(match[3].str());
-
-        int start_hh, start_mm, end_hh, end_mm;
-        bool start_valid = parse_time_format(start_time_str, start_hh, start_mm);
-        bool end_valid = parse_time_format(end_time_str, end_hh, end_mm);
-
-        if (!start_valid) {
-            errors.insert({line_num, "Activity start time invalid format or value."});
-        }
-        if (!end_valid) {
-            errors.insert({line_num, "Activity end time invalid format or value."});
-        }
-
-        if (start_valid && end_valid) {
-            if (start_hh > end_hh) {
-                // This case is allowed for overnight activities, no error here.
-                // However, the problem description implies activities are within the same day.
-                // For now, let's assume end time must be after start time if on the same day.
-                // If strict same-day: errors.insert({line_num, "Activity end time cannot be earlier than start time."});
-            } else if (start_hh == end_hh && end_mm < start_mm) {
-                 errors.insert({line_num, "Activity end time minutes cannot be less than start time minutes if hours are the same."});
-            }
-        }
-
-        // --- Start of new/modified activity text validation ---
-        bool text_format_rules_passed = true; // Flag for all text format rules
-
-        static const std::regex text_content_regex("^[a-zA-Z0-9_-]+$");
-        if (!std::regex_match(activity_text, text_content_regex)) {
-            errors.insert({line_num, "Activity text content \"" + activity_text + "\" contains invalid characters. Only letters, numbers, underscore (_), hyphen (-) allowed."});
-            text_format_rules_passed = false;
-        }
-
-        // New Rule 1: Must contain an underscore
-        if (text_format_rules_passed) { // Only proceed if basic regex passed
-            if (activity_text.find('_') == std::string::npos) {
-                errors.insert({line_num, "Activity text \"" + activity_text + "\" must contain an underscore ('_')."});
-                text_format_rules_passed = false;
-            }
-        }
-
-        // New Rule 2: Cannot end with an underscore
-        if (text_format_rules_passed) { // Only proceed if previous rules also passed
-            // activity_text is guaranteed non-empty here due to previous checks if text_format_rules_passed is true
-            if (activity_text.back() == '_') {
-                errors.insert({line_num, "Activity text \"" + activity_text + "\" cannot end with an underscore ('_')."});
-                text_format_rules_passed = false;
-            }
-        }
-        // --- End of new/modified activity text validation ---
-
-
-        if (text_format_rules_passed) { // Proceed only if all text format rules (regex, underscore presence, no trailing underscore) passed
-            if (config.loaded && !config.parent_categories.empty()) {
-                bool tag_is_valid_by_config = false;
-                bool tag_matched_a_parent_prefix_rule = false;
-
-                if (config.parent_categories.count(activity_text)) {
-                    errors.insert({line_num, "Activity text \"" + activity_text + "\" cannot be a parent category name."});
-                } else {
-                    for (const auto& pair : config.parent_categories) {
-                        const std::string& parent_name = pair.first;
-                        const std::unordered_set<std::string>& allowed_sub_tags_set = pair.second;
-                        std::string prefix = parent_name + "_";
-
-                        if (activity_text.rfind(prefix, 0) == 0) {
-                            tag_matched_a_parent_prefix_rule = true;
-                            if (allowed_sub_tags_set.count(activity_text)) {
-                                tag_is_valid_by_config = true;
-                            } else {
-                                std::string examples_str;
-                                if (!allowed_sub_tags_set.empty()) {
-                                    std::vector<std::string> sorted_examples(allowed_sub_tags_set.begin(), allowed_sub_tags_set.end());
-                                    std::sort(sorted_examples.begin(), sorted_examples.end());
-                                    examples_str = "Allowed in \"" + parent_name + "\" include: ";
-                                    for (size_t i = 0; i < std::min(sorted_examples.size(), static_cast<size_t>(3)); ++i) {
-                                        examples_str += "\"" + sorted_examples[i] + "\"" + (i < std::min(sorted_examples.size(), static_cast<size_t>(3)) - 1 ? ", " : "");
-                                    }
-                                    if (sorted_examples.size() > 3) examples_str += ", etc.";
-                                }
-                                errors.insert({line_num, "Activity text \"" + activity_text + "\" is not an allowed sub-tag for parent '" + parent_name + "'." + examples_str});
-                            }
-                            break;
-                        }
-                    }
-                    if (!tag_matched_a_parent_prefix_rule && !tag_is_valid_by_config) {
-                        std::string all_examples_str;
-                        std::vector<std::string> all_possible_tags;
-                        for(const auto& p_cat_pair : config.parent_categories) {
-                            for(const auto& tag : p_cat_pair.second) {
-                                all_possible_tags.push_back(tag);
-                            }
-                        }
-                        if(!all_possible_tags.empty()){
-                            std::sort(all_possible_tags.begin(), all_possible_tags.end());
-                            all_examples_str = " Some allowed activities include: ";
-                             for (size_t i = 0; i < std::min(all_possible_tags.size(), static_cast<size_t>(3)); ++i) {
-                                all_examples_str += "\"" + all_possible_tags[i] + "\"" + (i < std::min(all_possible_tags.size(), static_cast<size_t>(3)) - 1 ? ", " : "");
-                            }
-                            if (all_possible_tags.size() > 3) all_examples_str += ", etc.";
-                        }
-
-                        errors.insert({line_num, "Activity text \"" + activity_text + "\" does not conform to any defined parent category prefix structures or is not a recognized activity." + all_examples_str});
-                    }
-                }
-                 if(tag_is_valid_by_config) {
-                    current_block.activity_lines_content.push_back({activity_text, line_num});
-                 }
-            } else { // Config not loaded or empty, and text_format_rules_passed is true
-                 current_block.activity_lines_content.push_back({activity_text, line_num});
-            }
-        }
+        start_time_str = match[1].str();
+        end_time_str = match[2].str();
+        activity_text = trim(match[3].str()); // Trim the activity text part
+        return true;
     } else {
         errors.insert({line_num, "Activity line format error. Expected \"HH:MM~HH:MMTextContent\"."});
+        return false;
     }
 }
+
+// Helper function 2: Validate parsed time values
+// Returns true if formats are valid and logical time order is correct, false otherwise.
+// Errors are added to the errors set directly.
+void validate_activity_time_values(const std::string& start_time_str, const std::string& end_time_str, int line_num, std::set<Error>& errors) {
+    int start_hh, start_mm, end_hh, end_mm;
+    bool start_valid = parse_time_format(start_time_str, start_hh, start_mm);
+    bool end_valid = parse_time_format(end_time_str, end_hh, end_mm);
+
+    if (!start_valid) {
+        errors.insert({line_num, "Activity start time invalid format or value."});
+    }
+    if (!end_valid) {
+        errors.insert({line_num, "Activity end time invalid format or value."});
+    }
+
+    if (start_valid && end_valid) {
+        // This case is allowed for overnight activities, no error here.
+        // if (start_hh > end_hh) { }
+        if (start_hh == end_hh && end_mm < start_mm) {
+             errors.insert({line_num, "Activity end time minutes cannot be less than start time minutes if hours are the same."});
+        }
+    }
+}
+
+// Helper function 3: Validate activity text syntax
+// Returns true if syntax is valid, false otherwise. Errors are added to the set.
+bool validate_activity_text_syntax(const std::string& activity_text, int line_num, std::set<Error>& errors) {
+    static const std::regex text_content_regex("^[a-zA-Z0-9_-]+$");
+    if (!std::regex_match(activity_text, text_content_regex)) {
+        errors.insert({line_num, "Activity text content \"" + activity_text + "\" contains invalid characters. Only letters, numbers, underscore (_), hyphen (-) allowed."});
+        return false;
+    }
+
+    if (activity_text.find('_') == std::string::npos) {
+        errors.insert({line_num, "Activity text \"" + activity_text + "\" must contain an underscore ('_')."});
+        return false;
+    }
+
+    if (!activity_text.empty() && activity_text.back() == '_') { // Check !activity_text.empty() before back()
+        errors.insert({line_num, "Activity text \"" + activity_text + "\" cannot end with an underscore ('_')."});
+        return false;
+    }
+    return true;
+}
+
+// Helper function 4: Validate activity text against configuration
+// Returns true if valid according to config or if config doesn't apply; false if it violates config.
+// Errors are added to the set.
+bool is_activity_text_valid_against_config(const std::string& activity_text, const Config& config, int line_num, std::set<Error>& errors) {
+    // This function is called only if config.loaded and !config.parent_categories.empty()
+
+    if (config.parent_categories.count(activity_text)) {
+        errors.insert({line_num, "Activity text \"" + activity_text + "\" cannot be a parent category name."});
+        return false;
+    }
+
+    bool overall_config_valid = false; 
+    bool prefix_rule_matched = false;
+
+    for (const auto& pair : config.parent_categories) {
+        const std::string& parent_name = pair.first;
+        const std::unordered_set<std::string>& allowed_sub_tags_set = pair.second;
+        std::string prefix = parent_name + "_";
+
+        if (activity_text.rfind(prefix, 0) == 0) { // Starts with prefix
+            prefix_rule_matched = true;
+            if (allowed_sub_tags_set.count(activity_text)) {
+                overall_config_valid = true; 
+            } else {
+                std::string examples_str;
+                if (!allowed_sub_tags_set.empty()) {
+                    std::vector<std::string> sorted_examples(allowed_sub_tags_set.begin(), allowed_sub_tags_set.end());
+                    std::sort(sorted_examples.begin(), sorted_examples.end());
+                    examples_str = "Allowed in \"" + parent_name + "\" include: ";
+                    for (size_t i = 0; i < std::min(sorted_examples.size(), static_cast<size_t>(3)); ++i) {
+                        examples_str += "\"" + sorted_examples[i] + "\"" + (i < std::min(sorted_examples.size(), static_cast<size_t>(3)) - 1 ? ", " : "");
+                    }
+                    if (sorted_examples.size() > 3) examples_str += ", etc.";
+                }
+                errors.insert({line_num, "Activity text \"" + activity_text + "\" is not an allowed sub-tag for parent '" + parent_name + "'." + examples_str});
+                // overall_config_valid remains false
+            }
+            break; 
+        }
+    }
+
+    if (!prefix_rule_matched) {
+        std::string all_examples_str;
+        std::vector<std::string> all_possible_tags;
+        for(const auto& p_cat_pair : config.parent_categories) {
+            for(const auto& tag : p_cat_pair.second) {
+                all_possible_tags.push_back(tag);
+            }
+        }
+        if(!all_possible_tags.empty()){
+            std::sort(all_possible_tags.begin(), all_possible_tags.end());
+            all_examples_str = " Some allowed activities include: ";
+             for (size_t i = 0; i < std::min(all_possible_tags.size(), static_cast<size_t>(3)); ++i) {
+                all_examples_str += "\"" + all_possible_tags[i] + "\"" + (i < std::min(all_possible_tags.size(), static_cast<size_t>(3)) - 1 ? ", " : "");
+            }
+            if (all_possible_tags.size() > 3) all_examples_str += ", etc.";
+        }
+        errors.insert({line_num, "Activity text \"" + activity_text + "\" does not conform to any defined parent category prefix structures or is not a recognized activity." + all_examples_str});
+        // overall_config_valid remains false
+    }
+
+    return overall_config_valid;
+}
+
+// Refactored main validation function for an activity line
+void validate_activity_line(const std::string& line, int line_num, const Config& config, DateBlock& current_block, std::set<Error>& errors) {
+    std::string start_time_str, end_time_str, activity_text;
+
+    // Step 1: Parse the basic format of the activity line
+    if (!parse_activity_line_format(line, line_num, start_time_str, end_time_str, activity_text, errors)) {
+        return; // If basic format is wrong, nothing more to do for this line. Error already logged.
+    }
+
+    // Step 2: Validate the time values (format and logical order)
+    // Errors are logged by the function. This validation does not prevent text/config validation.
+    validate_activity_time_values(start_time_str, end_time_str, line_num, errors);
+
+    // Step 3: Validate the syntax of the activity text
+    bool text_syntax_is_valid = validate_activity_text_syntax(activity_text, line_num, errors);
+
+    if (text_syntax_is_valid) {
+        bool activity_passes_config_rules = true; // Assume true if no config or if it passes
+
+        // Step 4: Validate against configuration if applicable
+        if (config.loaded && !config.parent_categories.empty()) {
+            if (!is_activity_text_valid_against_config(activity_text, config, line_num, errors)) {
+                activity_passes_config_rules = false; // Config validation failed
+            }
+        }
+
+        // Add to activity list if syntax is valid AND it passes config rules (or config doesn't apply)
+        if (activity_passes_config_rules) {
+            current_block.activity_lines_content.push_back({activity_text, line_num});
+        }
+    }
+}
+// --- End of refactored activity validation functions ---
 
 
 void finalize_block_status_validation(DateBlock& block, std::set<Error>& errors) {
@@ -334,9 +370,6 @@ void finalize_block_status_validation(DateBlock& block, std::set<Error>& errors)
 
     bool contains_study = false;
     for (const auto& activity_pair : block.activity_lines_content) {
-        // Modified to check for "study" as a whole word or part of a valid underscore-separated tag.
-        // Example: "category_study", "study_project"
-        // This simple find should still work if "study" is required to be part of an activity name.
         if (activity_pair.first.find("study") != std::string::npos) {
             contains_study = true;
             break;
@@ -422,21 +455,12 @@ bool process_file(const std::string& file_path, const Config& config, std::set<E
             }
 
             if (!current_block.header_completely_valid && current_parse_state != ParseState::EXPECT_DATE) {
-                // If header (Date, Status, Getup, Remark) had an error, 
-                // we might not want to process activities for this block,
-                // or we might still want to report activity errors.
-                // Current logic: if header invalid, subsequent lines might be skipped or misparsed by state machine.
-                // For now, if a header part fails, it might prevent further parsing of that block's items correctly.
-                // This `continue` means if e.g. Date was bad, we won't try to parse Status, Getup, etc. or activities.
-                // This might be okay, as the block is already marked problematic.
                 continue;
             }
 
             switch (current_parse_state) {
                 case ParseState::EXPECT_STATUS:
                     validate_status_line(trimmed_line, line_number, current_block, file_errors_out);
-                    // Only proceed if Status itself was okay, or always proceed?
-                    // The `header_completely_valid` flag on current_block handles whether date/status/getup/remark had errors.
                     current_parse_state = ParseState::EXPECT_GETUP;
                     break;
                 case ParseState::EXPECT_GETUP:
@@ -448,14 +472,10 @@ bool process_file(const std::string& file_path, const Config& config, std::set<E
                     current_parse_state = ParseState::EXPECT_ACTIVITY;
                     break;
                 case ParseState::EXPECT_ACTIVITY:
+                    // Call the main refactored validate_activity_line function
                     validate_activity_line(trimmed_line, line_number, config, current_block, file_errors_out);
                     break;
                 case ParseState::EXPECT_DATE: 
-                    // This state means we are waiting for a new Date line, likely due to an error in the previous one
-                    // or it's the very start of the file processing after an initial non-Date line.
-                    // Non-Date lines encountered here (if not empty) should ideally be flagged if they aren't a new Date line.
-                    // However, the logic for `trimmed_line.rfind("Date:", 0) == 0` handles new Date lines.
-                    // Other lines here are effectively ignored until a new Date starts or file ends.
                     break; 
             }
         }
@@ -463,17 +483,15 @@ bool process_file(const std::string& file_path, const Config& config, std::set<E
 
     if (date_line_encountered_for_file) { 
         if (current_parse_state != ParseState::EXPECT_ACTIVITY && current_parse_state != ParseState::EXPECT_DATE) {
-             // This means the file ended after Date, or Date+Status, or Date+Status+Getup, or Date+Status+Getup+Remark, but before any activities or a new Date.
-             // An error if we expect at least one activity, or if the block structure is strictly Date,S,G,R,Activity(s)
              file_errors_out.insert({current_block.start_line_number != -1 ? current_block.start_line_number : line_number,
                                    "File ended before current block was complete (expected Status, Getup, Remark, or activity lines)."});
         }
-       finalize_previous_block(current_block); // Finalize the last block
-    } else if (!first_non_empty_line_in_file && line_number > 0) { // File had content but no Date: line
-        if(file_errors_out.empty()){ // Add this error only if no other error (like "must begin with Date") was added for line 1
+       finalize_previous_block(current_block); 
+    } else if (!first_non_empty_line_in_file && line_number > 0) { 
+        if(file_errors_out.empty()){ 
              file_errors_out.insert({1, "File (if non-empty) must begin with a valid Date: line. No Date: line found."});
         }
-    } // If file is empty (line_number == 0), no errors.
+    } 
 
     return !file_errors_out.empty();
 }
