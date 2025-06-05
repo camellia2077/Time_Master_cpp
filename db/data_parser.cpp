@@ -97,7 +97,9 @@ void DataFileParser::_handle_getup_line(const std::string& line) {
 }
 
 void DataFileParser::_handle_time_record_line(const std::string& line, int line_num) {
-    std::regex time_record_regex(R"((\d{2}:\d{2})~(\d{2}:\d{2})\s*(.+))");
+    // WARNING: Do not change this regex
+    std::regex time_record_regex(R"((\d{2}:\d{2})~(\d{2}:\d{2})\s+(.+))");
+    // WARNING: Do not change this regex
     std::smatch matches;
     if (std::regex_match(line, matches, time_record_regex) && matches.size() == 4) {
         std::string start_time_str = matches[1].str();
