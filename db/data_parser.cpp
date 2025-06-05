@@ -2,24 +2,26 @@
 // Do not redefine functions that are already present in common_utils.h within this file.
 
 #include "data_parser.h"
-#include "common_utils.h" // 确保包含了 time_str_to_seconds 的定义
+#include "common_utils.h"
 #include <fstream>
 #include <iostream>
 #include <regex>
 #include <sqlite3.h>
 #include <algorithm>
+#include <stdexcept>
 
-// --- FileDataParser 类的构造函数和析构函数实现 ---
+// --- FileDataParser Constructor & Destructor ---
 
-FileDataParser::FileDataParser(const std::string& db_path) : db(nullptr), current_date_processed(false) {
+FileDataParser::FileDataParser(const std::string& db_path) 
+    : db(nullptr), current_date_processed(false),
+      stmt_update_day(nullptr), stmt_insert_record(nullptr), stmt_insert_parent_child(nullptr) {
     if (sqlite3_open(db_path.c_str(), &db)) {
-        std::cerr << "错误：无法打开数据库: " << sqlite3_errmsg(db) << std::endl;
+        std::cerr << "Error: Cannot open database: " << sqlite3_errmsg(db) << std::endl;
         db = nullptr;
     } else {
         _initialize_database();
-        _prepopulate_parent_child();
+        _prepare_statements(); // Prepare statements for reuse
     }
-    // 初始化顶层父类别
     initial_top_level_parents = {
         {"study", "STUDY"},
         {"code", "CODE"}
@@ -28,14 +30,17 @@ FileDataParser::FileDataParser(const std::string& db_path) : db(nullptr), curren
 
 FileDataParser::~FileDataParser() {
     if (db) {
-        // 在关闭前确保所有缓冲数据都已存储
+        // Ensure any remaining data is processed before closing.
+        // The transaction should already be handled by parse_file's scope.
         _store_previous_date_data();
+        _commit_parent_child_buffer(); // Make sure the buffer is flushed
+
+        _finalize_statements(); // Clean up prepared statements
         sqlite3_close(db);
     }
 }
 
-
-// --- FileDataParser 类的公有成员函数实现 ---
+// --- Public Member Functions ---
 
 bool FileDataParser::is_db_open() const {
     return db != nullptr;
@@ -50,25 +55,27 @@ bool FileDataParser::parse_file(const std::string& filename) {
 
     std::ifstream file(filename);
     if (!file.is_open()) {
-        std::cerr << "错误: 无法打开文件 " << filename << std::endl;
+        std::cerr << "Error: Cannot open file " << filename << std::endl;
         return false;
     }
 
-    std::string line;
-    int line_num = 0;
     current_file_name = filename;
 
-    while (std::getline(file, line)) {
-        line_num++;
-        // 修剪行首和行尾的空白字符
-        line.erase(0, line.find_first_not_of(" \t\n\r\f\v"));
-        line.erase(line.find_last_not_of(" \t\n\r\f\v") + 1);
+    // --- Optimization 1: Single Transaction ---
+    execute_sql_parser(db, "BEGIN TRANSACTION;", "Begin file transaction");
+    bool transaction_success = true;
 
-        if (line.empty()) continue;
+    try {
+        std::string line;
+        int line_num = 0;
+        while (std::getline(file, line)) {
+            line_num++;
+            line.erase(0, line.find_first_not_of(" \t\n\r\f\v"));
+            line.erase(line.find_last_not_of(" \t\n\r\f\v") + 1);
+            if (line.empty()) continue;
 
-        try {
             if (line.rfind("Date:", 0) == 0) {
-                _store_previous_date_data(); // 处理上一天的数据
+                _store_previous_date_data(); 
                 _handle_date_line(line);
             } else if (line.rfind("Status:", 0) == 0) {
                 _handle_status_line(line);
@@ -78,55 +85,56 @@ bool FileDataParser::parse_file(const std::string& filename) {
                 _handle_getup_line(line);
             } else if (line.find('~') != std::string::npos) {
                 _handle_time_record_line(line, line_num);
-            } else {
-                // 可选：报告无法识别的行
             }
-        } catch (const std::exception& e) {
-            std::cerr << current_file_name << ":" << line_num << ": 处理行时出错: " << line << " - " << e.what() << std::endl;
         }
+        
+        _store_previous_date_data();      // Store the very last day's data from the file
+        _commit_parent_child_buffer();    // Commit all unique parent-child pairs at once
+
+    } catch (const std::exception& e) {
+        std::cerr << current_file_name << ": An error occurred during parsing: " << e.what() << std::endl;
+        transaction_success = false;
     }
-    _store_previous_date_data(); // 处理文件中的最后一天数据
+
     file.close();
-    return true;
+
+    // Commit or rollback the single transaction for the entire file
+    execute_sql_parser(db, transaction_success ? "COMMIT;" : "ROLLBACK;", transaction_success ? "Commit file transaction" : "Rollback file transaction");
+    
+    return transaction_success;
 }
 
-// --- FileDataParser 类的私有成员函数实现 ---
+
+// --- Private Member Functions ---
 
 void FileDataParser::_initialize_database() {
-    const char* create_days_table_sql = R"(
-        CREATE TABLE IF NOT EXISTS days (
-            date TEXT PRIMARY KEY, status TEXT, remark TEXT, getup_time TEXT
-        );
-    )";
-    execute_sql_parser(db, create_days_table_sql, "创建 days 表");
-
-    const char* create_time_records_table_sql = R"(
-        CREATE TABLE IF NOT EXISTS time_records (
-            date TEXT, start TEXT, end TEXT, project_path TEXT, duration INTEGER,
-            PRIMARY KEY (date, start),
-            FOREIGN KEY (date) REFERENCES days(date)
-        );
-    )";
-    execute_sql_parser(db, create_time_records_table_sql, "创建 time_records 表");
-
-    const char* create_parent_child_table_sql = R"(
-        CREATE TABLE IF NOT EXISTS parent_child (child TEXT PRIMARY KEY, parent TEXT);
-    )";
-    execute_sql_parser(db, create_parent_child_table_sql, "创建 parent_child 表");
+    execute_sql_parser(db, "CREATE TABLE IF NOT EXISTS days (date TEXT PRIMARY KEY, status TEXT, remark TEXT, getup_time TEXT);", "Create days table");
+    execute_sql_parser(db, "CREATE TABLE IF NOT EXISTS time_records (date TEXT, start TEXT, end TEXT, project_path TEXT, duration INTEGER, PRIMARY KEY (date, start), FOREIGN KEY (date) REFERENCES days(date));", "Create time_records table");
+    execute_sql_parser(db, "CREATE TABLE IF NOT EXISTS parent_child (child TEXT PRIMARY KEY, parent TEXT);", "Create parent_child table");
 }
 
-void FileDataParser::_prepopulate_parent_child() {
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "INSERT OR IGNORE INTO parent_child (child, parent) VALUES (?, ?);";
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
-
-    for (const auto& pair : initial_top_level_parents) {
-        sqlite3_bind_text(stmt, 1, pair.first.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, 2, pair.second.c_str(), -1, SQLITE_STATIC);
-        sqlite3_step(stmt);
-        sqlite3_reset(stmt);
+// --- Optimization 2: Prepare SQL Statements ---
+void FileDataParser::_prepare_statements() {
+    const char* update_day_sql = "UPDATE days SET status = ?, remark = ?, getup_time = ? WHERE date = ?;";
+    if (sqlite3_prepare_v2(db, update_day_sql, -1, &stmt_update_day, nullptr) != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare day update statement.");
     }
-    sqlite3_finalize(stmt);
+
+    const char* insert_record_sql = "INSERT OR REPLACE INTO time_records (date, start, end, project_path, duration) VALUES (?, ?, ?, ?, ?);";
+    if (sqlite3_prepare_v2(db, insert_record_sql, -1, &stmt_insert_record, nullptr) != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare time record insert statement.");
+    }
+
+    const char* insert_parent_child_sql = "INSERT OR IGNORE INTO parent_child (child, parent) VALUES (?, ?);";
+    if (sqlite3_prepare_v2(db, insert_parent_child_sql, -1, &stmt_insert_parent_child, nullptr) != SQLITE_OK) {
+        throw std::runtime_error("Failed to prepare parent-child insert statement.");
+    }
+}
+
+void FileDataParser::_finalize_statements() {
+    if (stmt_update_day) sqlite3_finalize(stmt_update_day);
+    if (stmt_insert_record) sqlite3_finalize(stmt_insert_record);
+    if (stmt_insert_parent_child) sqlite3_finalize(stmt_insert_parent_child);
 }
 
 void FileDataParser::_handle_date_line(const std::string& line) {
@@ -154,6 +162,7 @@ void FileDataParser::_handle_date_line(const std::string& line) {
     }
 }
 
+// --- Optimization 3: Simplified String Handling ---
 void FileDataParser::_handle_status_line(const std::string& line) {
     if (line.length() > 7) current_status = line.substr(7);
 }
@@ -167,16 +176,13 @@ void FileDataParser::_handle_getup_line(const std::string& line) {
 }
 
 void FileDataParser::_handle_time_record_line(const std::string& line, int line_num) {
-    // 注意：以下正则表达式用于匹配时间记录行，例如：03:31~11:53sleep_night
-    // 根据业务逻辑，时间段与项目路径之间可能没有空格（例如 "11:53sleep_night" 是合法格式）
-    // 因此，这里必须使用 \s*（允许0个或多个空白字符），不要改成 \s+  如果改为 \s+，将导致合法记录被错误忽略
     std::regex time_record_regex(R"((\d{2}:\d{2})~(\d{2}:\d{2})\s*(.+))");
     std::smatch matches;
     if (std::regex_match(line, matches, time_record_regex) && matches.size() == 4) {
         std::string start_time_str = matches[1].str();
         std::string end_time_str = matches[2].str();
+        // Optimization 3: Directly use the matched group without further trimming
         std::string project_path = matches[3].str();
-        project_path.erase(project_path.find_last_not_of(" \t") + 1);
 
         int start_seconds = time_str_to_seconds(start_time_str);
         int end_seconds = time_str_to_seconds(end_time_str);
@@ -187,19 +193,23 @@ void FileDataParser::_handle_time_record_line(const std::string& line, int line_
     }
 }
 
+// --- Optimization 4: Buffer parent_child Inserts ---
 void FileDataParser::_process_project_path(const std::string& project_path_orig) {
     std::string project_path = project_path_orig;
     std::replace(project_path.begin(), project_path.end(), ' ', '_');
     std::stringstream ss(project_path);
     std::string segment;
     std::vector<std::string> segments;
-    while(std::getline(ss, segment, '_')) if (!segment.empty()) segments.push_back(segment);
+    while(std::getline(ss, segment, '_')) {
+        if (!segment.empty()) segments.push_back(segment);
+    }
 
     if (segments.empty()) return;
-
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "INSERT OR IGNORE INTO parent_child (child, parent) VALUES (?, ?);";
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    
+    // Add initial top-level parents to the buffer
+    for (const auto& pair : initial_top_level_parents) {
+        parent_child_buffer.insert({pair.first, pair.second});
+    }
 
     std::string current_full_path = "";
     std::string parent_of_current_segment;
@@ -207,66 +217,77 @@ void FileDataParser::_process_project_path(const std::string& project_path_orig)
         if (i == 0) {
             current_full_path = segments[i];
             auto it = initial_top_level_parents.find(current_full_path);
-            parent_of_current_segment = (it != initial_top_level_parents.end()) ? it->second : current_full_path;
-            if (it == initial_top_level_parents.end()) std::transform(parent_of_current_segment.begin(), parent_of_current_segment.end(), parent_of_current_segment.begin(), ::toupper);
+            if (it != initial_top_level_parents.end()) {
+                parent_of_current_segment = it->second;
+            } else {
+                parent_of_current_segment = current_full_path;
+                std::transform(parent_of_current_segment.begin(), parent_of_current_segment.end(), parent_of_current_segment.begin(), ::toupper);
+            }
         } else {
             parent_of_current_segment = current_full_path;
             current_full_path += "_" + segments[i];
         }
-        sqlite3_bind_text(stmt, 1, current_full_path.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt, 2, parent_of_current_segment.c_str(), -1, SQLITE_STATIC);
-        sqlite3_step(stmt);
-        sqlite3_reset(stmt);
+        // Buffer the insert instead of executing it immediately
+        parent_child_buffer.insert({current_full_path, parent_of_current_segment});
     }
-    sqlite3_finalize(stmt);
 }
+
+void FileDataParser::_commit_parent_child_buffer() {
+    if (!stmt_insert_parent_child) return;
+
+    for (const auto& pair : parent_child_buffer) {
+        sqlite3_bind_text(stmt_insert_parent_child, 1, pair.first.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt_insert_parent_child, 2, pair.second.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt_insert_parent_child) != SQLITE_DONE) {
+             std::cerr << "Error inserting parent-child pair: " << sqlite3_errmsg(db) << std::endl;
+        }
+        sqlite3_reset(stmt_insert_parent_child);
+    }
+    parent_child_buffer.clear(); // Clear buffer after commit
+}
+
 
 void FileDataParser::_store_previous_date_data() {
     if (current_date.empty() || !db || current_date_processed) return;
+    
+    // This function now uses pre-compiled statements and does not manage transactions
 
-    execute_sql_parser(db, "BEGIN TRANSACTION;", "开始事务");
-    bool success = true;
-
-    sqlite3_stmt* day_stmt;
-    const char* update_day_sql = "UPDATE days SET status = ?, remark = ?, getup_time = ? WHERE date = ?;";
-    if (success && sqlite3_prepare_v2(db, update_day_sql, -1, &day_stmt, nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(day_stmt, 1, current_status.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_text(day_stmt, 2, current_remark.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_text(day_stmt, 3, current_getup_time.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_text(day_stmt, 4, current_date.c_str(), -1, SQLITE_STATIC);
-        if (sqlite3_step(day_stmt) != SQLITE_DONE) success = false;
-        sqlite3_finalize(day_stmt);
-    } else success = false;
-
-    sqlite3_stmt* record_stmt;
-    const char* insert_record_sql = "INSERT OR REPLACE INTO time_records (date, start, end, project_path, duration) VALUES (?, ?, ?, ?, ?);";
-    if (success && sqlite3_prepare_v2(db, insert_record_sql, -1, &record_stmt, nullptr) == SQLITE_OK) {
-        for (const auto& record : current_time_records_buffer) {
-            sqlite3_bind_text(record_stmt, 1, record.date.c_str(), -1, SQLITE_STATIC);
-            sqlite3_bind_text(record_stmt, 2, record.start.c_str(), -1, SQLITE_STATIC);
-            sqlite3_bind_text(record_stmt, 3, record.end.c_str(), -1, SQLITE_STATIC);
-            sqlite3_bind_text(record_stmt, 4, record.project_path.c_str(), -1, SQLITE_STATIC);
-            sqlite3_bind_int(record_stmt, 5, record.duration_seconds);
-            if (sqlite3_step(record_stmt) != SQLITE_DONE) {
-                success = false;
-                break;
-            }
-            sqlite3_reset(record_stmt);
+    // Update day record
+    if(stmt_update_day) {
+        sqlite3_bind_text(stmt_update_day, 1, current_status.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt_update_day, 2, current_remark.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt_update_day, 3, current_getup_time.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt_update_day, 4, current_date.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt_update_day) != SQLITE_DONE) {
+            std::cerr << "Error updating day record: " << sqlite3_errmsg(db) << std::endl;
         }
-        sqlite3_finalize(record_stmt);
-    } else success = false;
-
-    execute_sql_parser(db, success ? "COMMIT;" : "ROLLBACK;", success ? "提交事务" : "回滚事务");
+        sqlite3_reset(stmt_update_day);
+    }
+    
+    // Insert all time records from buffer
+    if(stmt_insert_record) {
+        for (const auto& record : current_time_records_buffer) {
+            sqlite3_bind_text(stmt_insert_record, 1, record.date.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt_insert_record, 2, record.start.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt_insert_record, 3, record.end.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt_insert_record, 4, record.project_path.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_int(stmt_insert_record, 5, record.duration_seconds);
+            if (sqlite3_step(stmt_insert_record) != SQLITE_DONE) {
+                 std::cerr << "Error inserting time record: " << sqlite3_errmsg(db) << std::endl;
+            }
+            sqlite3_reset(stmt_insert_record);
+        }
+    }
 
     current_time_records_buffer.clear();
     current_date_processed = true;
 }
 
-// 这是一个非成员函数，因为它在 .h 文件中是这样声明的
+// Non-member helper function
 bool execute_sql_parser(sqlite3* db, const std::string& sql, const std::string& context_msg) {
     char* err_msg = nullptr;
     if (sqlite3_exec(db, sql.c_str(), 0, 0, &err_msg) != SQLITE_OK) {
-        std::cerr << "SQL 错误 (" << context_msg << "): " << err_msg << std::endl;
+        std::cerr << "SQL Error (" << context_msg << "): " << err_msg << std::endl;
         sqlite3_free(err_msg);
         return false;
     }

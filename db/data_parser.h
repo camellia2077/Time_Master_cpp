@@ -13,9 +13,12 @@
 #include <sstream>
 #include <algorithm>
 #include <map>
-#include "common_utils.h" // 包含 time_str_to_seconds 的全局函数定义
+#include <set>      // Added for parent_child buffering
+#include <utility>  // Added for std::pair
 
-// 函数声明
+#include "common_utils.h" // Contains global function definition for time_str_to_seconds
+
+// Forward declaration
 bool execute_sql_parser(sqlite3* db, const std::string& sql, const std::string& context_msg = "");
 
 struct TimeRecordInternal {
@@ -45,8 +48,19 @@ private:
     bool current_date_processed;
     std::map<std::string, std::string> initial_top_level_parents;
 
+    // --- Optimization Members ---
+    // 1. Cached prepared statements for reuse
+    sqlite3_stmt* stmt_update_day;
+    sqlite3_stmt* stmt_insert_record;
+    sqlite3_stmt* stmt_insert_parent_child;
+    
+    // 2. Buffer for parent_child inserts to reduce DB calls
+    std::set<std::pair<std::string, std::string>> parent_child_buffer;
+
     void _initialize_database();
-    void _prepopulate_parent_child();
+    void _prepare_statements(); // New function to prepare all SQL statements at once
+    void _finalize_statements(); // New function to finalize all prepared statements
+
     void _handle_date_line(const std::string& line);
     void _handle_status_line(const std::string& line);
     void _handle_remark_line(const std::string& line);
@@ -54,6 +68,7 @@ private:
     void _handle_time_record_line(const std::string& line, int line_num);
     void _process_project_path(const std::string& project_path_orig);
     void _store_previous_date_data();
+    void _commit_parent_child_buffer(); // New function to commit the buffered parent-child pairs
 };
 
 #endif // DATA_PARSER_H
