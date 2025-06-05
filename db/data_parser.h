@@ -12,7 +12,7 @@
 #include <map>
 #include "common_utils.h" // For time_str_to_seconds
 
-// Helper function to execute SQL statements and handle errors (specific to parser or can be global)
+// Helper function to execute SQL statements and handle errors
 inline bool execute_sql_parser(sqlite3* db, const std::string& sql, const std::string& context_msg = "") {
     char* err_msg = nullptr;
     int rc = sqlite3_exec(db, sql.c_str(), 0, 0, &err_msg);
@@ -25,7 +25,7 @@ inline bool execute_sql_parser(sqlite3* db, const std::string& sql, const std::s
     return true;
 }
 
-struct TimeRecordInternal { // Renamed to avoid conflict if TimeRecord is used elsewhere
+struct TimeRecordInternal {
     std::string date;
     std::string start;
     std::string end;
@@ -40,7 +40,6 @@ public:
             std::cerr << "Can't open database: " << sqlite3_errmsg(db) << std::endl;
             db = nullptr;
         } else {
-            std::cout << "Opened database successfully for parser: " << db_path << std::endl;
             _initialize_database();
             _prepopulate_parent_child();
         }
@@ -50,7 +49,6 @@ public:
         if (db) {
             _store_previous_date_data();
             sqlite3_close(db);
-            std::cout << "Parser database closed." << std::endl;
         }
     }
 
@@ -66,8 +64,6 @@ public:
             std::cerr << "Error: Could not open file " << filename << std::endl;
             return false;
         }
-
-        std::cout << "Processing file: " << filename << std::endl;
 
         std::string line;
         int line_num = 0;
@@ -101,15 +97,13 @@ public:
                 std::cerr << current_file_name << ":" << line_num << ": Error processing line: " << line << " - " << e.what() << std::endl;
             }
         }
-        _store_previous_date_data(); // Store data for the last date in the file
-        std::cout << "Finished processing file: " << filename << std::endl;
+        _store_previous_date_data();
         file.close();
         return true;
     }
 
     void commit_all() {
-        _store_previous_date_data(); // Ensure any final pending data is stored
-        std::cout << "All pending data from parser committed." << std::endl;
+        _store_previous_date_data();
     }
 
 
@@ -121,7 +115,7 @@ private:
     std::string current_getup_time;
     std::vector<TimeRecordInternal> current_time_records_buffer;
     std::string current_file_name;
-    bool current_date_processed; // Flag to track if current_date data has been fully stored
+    bool current_date_processed;
 
     std::map<std::string, std::string> initial_top_level_parents = {
         {"study", "STUDY"},
@@ -176,7 +170,6 @@ private:
             sqlite3_bind_text(stmt, 1, pair.first.c_str(), -1, SQLITE_STATIC);
             sqlite3_bind_text(stmt, 2, pair.second.c_str(), -1, SQLITE_STATIC);
             if (sqlite3_step(stmt) != SQLITE_DONE) {
-                // Ignore unique constraint errors as this is INSERT OR IGNORE
                 if (sqlite3_errcode(db) != SQLITE_CONSTRAINT_PRIMARYKEY && sqlite3_errcode(db) != SQLITE_CONSTRAINT_UNIQUE) {
                      std::cerr << "Failed to insert initial parent_child data (" << pair.first << ", " << pair.second << "): " << sqlite3_errmsg(db) << std::endl;
                 }
@@ -188,24 +181,22 @@ private:
 
 
     void _handle_date_line(const std::string& line) {
-        // Format: Date:YYYYMMDD
         if (line.length() > 5) {
             current_date = line.substr(5);
             current_date.erase(0, current_date.find_first_not_of(" \t"));
             current_date.erase(current_date.find_last_not_of(" \t") + 1);
 
-            // Reset daily accumulators
             current_status = "False";
             current_remark = "";
             current_getup_time = "00:00";
             current_time_records_buffer.clear();
             current_date_processed = false;
 
-            // Create initial record in days table, or ignore if date already exists
             sqlite3_stmt* stmt;
             const char* sql = "INSERT OR IGNORE INTO days (date, status, remark, getup_time) VALUES (?, ?, ?, ?);";
             if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
                 sqlite3_bind_text(stmt, 1, current_date.c_str(), -1, SQLITE_STATIC);
+                // *** THE TYPO WAS HERE: c_st() is now c_str() ***
                 sqlite3_bind_text(stmt, 2, current_status.c_str(), -1, SQLITE_STATIC);
                 sqlite3_bind_text(stmt, 3, current_remark.c_str(), -1, SQLITE_STATIC);
                 sqlite3_bind_text(stmt, 4, current_getup_time.c_str(), -1, SQLITE_STATIC);
@@ -216,7 +207,6 @@ private:
             } else {
                 std::cerr << "Failed to prepare statement for initial day record: " << sqlite3_errmsg(db) << std::endl;
             }
-             std::cout << "Parser: New date set: " << current_date << std::endl;
         } else {
             std::cerr << current_file_name << ": Malformed Date line: " << line << std::endl;
         }
@@ -227,7 +217,7 @@ private:
             std::cerr << current_file_name << ": Status line found before Date: " << line << std::endl;
             return;
         }
-        if (line.length() > 7) { // "Status:" is 7 chars
+        if (line.length() > 7) { 
             current_status = line.substr(7);
             current_status.erase(0, current_status.find_first_not_of(" \t"));
             current_status.erase(current_status.find_last_not_of(" \t") + 1);
@@ -241,7 +231,7 @@ private:
             std::cerr << current_file_name << ": Remark line found before Date: " << line << std::endl;
             return;
         }
-        if (line.length() >= 7) { // "Remark:" is 7 chars
+        if (line.length() >= 7) { 
             if (line.length() > 7) {
                  current_remark = line.substr(7);
                  current_remark.erase(0, current_remark.find_first_not_of(" \t"));
@@ -258,7 +248,7 @@ private:
             std::cerr << current_file_name << ": Getup line found before Date: " << line << std::endl;
             return;
         }
-        if (line.length() > 6) { // "Getup:" is 6 chars
+        if (line.length() > 6) {
             current_getup_time = line.substr(6);
             current_getup_time.erase(0, current_getup_time.find_first_not_of(" \t"));
             current_getup_time.erase(current_getup_time.find_last_not_of(" \t") + 1);
@@ -269,7 +259,6 @@ private:
                  for(char c : temp_getup_time) if (!isdigit(c)) all_digits = false;
                  if(all_digits) temp_getup_time = temp_getup_time.substr(0,2) + ":" + temp_getup_time.substr(2,2);
             }
-
 
             if (time_str_to_seconds(temp_getup_time) == 0 && temp_getup_time != "00:00") {
                 std::cerr << current_file_name << ": Warning: Invalid Getup time format '" << current_getup_time << "'. Using '00:00'." << std::endl;
@@ -308,7 +297,6 @@ private:
                 };
                 std::string start_time_str = normalize_time(start_time_str_raw);
                 std::string end_time_str = normalize_time(end_time_str_raw);
-
 
                 int start_seconds = time_str_to_seconds(start_time_str);
                 int end_seconds = time_str_to_seconds(end_time_str);
@@ -396,7 +384,6 @@ private:
         if (current_date.empty() || !db || current_date_processed) {
             return;
         }
-         std::cout << "Parser: Storing data for date: " << current_date << std::endl;
 
         sqlite3_stmt* day_stmt;
         const char* update_day_sql = "UPDATE days SET status = ?, remark = ?, getup_time = ? WHERE date = ?;";
