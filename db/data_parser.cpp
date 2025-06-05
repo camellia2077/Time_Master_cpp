@@ -7,8 +7,11 @@
 // --- DataFileParser Constructor & Destructor ---
 
 DataFileParser::DataFileParser() 
-    : current_date_processed(false) {
-    initial_top_level_parents = {
+    : current_date_processed(false),
+    _time_record_regex(R"((\d{2}:\d{2})~(\d{2}:\d{2})\s*(.+))")// WARNING: Do not change this regex — it matches the expected input format
+{
+    initial_top_level_parents = 
+    {
         {"study", "STUDY"},
         {"code", "CODE"}
     };
@@ -97,11 +100,9 @@ void DataFileParser::_handle_getup_line(const std::string& line) {
 }
 
 void DataFileParser::_handle_time_record_line(const std::string& line, int line_num) {
-    // WARNING: Do not change this regex.it matches the expected input format
-    std::regex time_record_regex(R"((\d{2}:\d{2})~(\d{2}:\d{2})\s*(.+))");
-    // WARNING: Do not change this regex.it matches the expected input format
     std::smatch matches;
-    if (std::regex_match(line, matches, time_record_regex) && matches.size() == 4) {
+    if (std::regex_match(line, matches, _time_record_regex) && matches.size() == 4) 
+    { 
         std::string start_time_str = matches[1].str();
         std::string end_time_str = matches[2].str();
         std::string project_path = matches[3].str();

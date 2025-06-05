@@ -63,6 +63,7 @@ private:
     std::string current_file_name;
     bool current_date_processed;
     std::map<std::string, std::string> initial_top_level_parents;
+    const std::regex _time_record_regex;
 
     // --- Private Helper Methods ---
     void _handle_date_line(const std::string& line);
