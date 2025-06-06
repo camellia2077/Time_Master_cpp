@@ -8,7 +8,7 @@
 
 DataFileParser::DataFileParser() 
     : current_date_processed(false),
-    _time_record_regex(R"((\d{2}:\d{2})~(\d{2}:\d{2})\s*(.+))")// WARNING: Do not change this regex — it matches the expected input format
+    _time_record_regex(R"((\d{2}:\d{2})~(\d{2}:\d{2})(.+))")// WARNING: Do not change this regex — it matches the expected input format
 {
     initial_top_level_parents = 
     {
