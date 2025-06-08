@@ -91,7 +91,7 @@ std::optional<std::vector<std::string>> load_activities_from_json(const std::str
 
         if (data.contains("common_activities") && data["common_activities"].is_array()) {
             auto activities = data["common_activities"].get<std::vector<std::string>>();
-            if (activities.empty()) 
+            if (activities.empty())
             {
                 std::cerr << ConsoleColors::red << "Error: "  << ConsoleColors::reset << "\"common_activities\" array in '" << json_filename << "' is empty." << '\n';
                 return std::nullopt;
@@ -150,9 +150,24 @@ std::optional<Config> parse_arguments(int argc, char* argv[]) {
     return config;
 }
 
-std::string generate_log_data(const Config& config, const std::vector<std::string>& common_activities) {
-    std::ostringstream log_content_stream;
-    
+/**
+ * @brief Generates log data and writes it directly to a file stream in chunks.
+ *
+ * This function generates log data day by day. To manage memory for very large outputs,
+ * it accumulates data for a set number of days (a "chunk") in a string buffer,
+ * then writes (flushes) this buffer to the provided output file stream before clearing it.
+ *
+ * @param outFile The output file stream to write the log data to.
+ * @param config Configuration specifying the number of days and items per day.
+ * @param common_activities A vector of strings containing activities to be logged.
+ */
+void generate_log_data(std::ofstream& outFile, const Config& config, const std::vector<std::string>& common_activities) {
+    static const int days_in_months[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    // Flush to file every N days to keep memory usage low.
+    const int days_per_chunk = 1000;
+
+    std::ostringstream log_chunk_stream;
+
     int current_month = 1;
     int current_day_of_month = 1;
 
@@ -163,7 +178,12 @@ std::string generate_log_data(const Config& config, const std::vector<std::strin
     int minute_for_todays_actual_wakeup = dis_minute(gen);
 
     for (int d = 0; d < config.num_days; ++d) {
-        log_content_stream << format_two_digits(current_month) << format_two_digits(current_day_of_month) << '\n';
+        // Add a newline separator between days, but not before the first day.
+        if (d > 0) {
+            log_chunk_stream << '\n';
+        }
+
+        log_chunk_stream << format_two_digits(current_month) << format_two_digits(current_day_of_month) << '\n';
         int minute_for_next_days_scheduled_wakeup = dis_minute(gen);
 
         for (int i = 0; i < config.items_per_day; ++i) {
@@ -187,41 +207,27 @@ std::string generate_log_data(const Config& config, const std::vector<std::strin
                 event_minute_final = dis_minute(gen);
                 event_text_to_use_final = common_activities[dis_activity_selector(gen)];
             }
-            log_content_stream << format_two_digits(display_hour_final) << format_two_digits(event_minute_final) << event_text_to_use_final << '\n';
+            log_chunk_stream << format_two_digits(display_hour_final) << format_two_digits(event_minute_final) << event_text_to_use_final << '\n';
         }
 
         minute_for_todays_actual_wakeup = minute_for_next_days_scheduled_wakeup;
 
         current_day_of_month++;
-        int days_in_current_month = 31;
-        if (current_month == 4 || current_month == 6 || current_month == 9 || current_month == 11) {
-            days_in_current_month = 30;
-        } else if (current_month == 2) {
-            days_in_current_month = 28;
-        }
-
-        if (current_day_of_month > days_in_current_month) {
+        if (current_day_of_month > days_in_months[current_month]) {
             current_day_of_month = 1;
             current_month = (current_month % 12) + 1;
         }
-
-        if (d < config.num_days - 1) {
-            log_content_stream << '\n';
+        
+        // ---分块写入逻辑---
+        // 当累积的天数达到一个块的大小时，或者这是最后一天时，将缓冲区内容写入文件
+        if ((d + 1) % days_per_chunk == 0 || (d + 1) == config.num_days) {
+            outFile << log_chunk_stream.str();
+            log_chunk_stream.str(""); // 清空缓冲区
+            log_chunk_stream.clear(); // 重置流状态
         }
     }
-    return log_content_stream.str();
 }
 
-bool write_output_file(const std::string& filename, const std::string& content) {
-    std::ofstream outFile(filename);
-    if (!outFile.is_open()) {
-        std::cerr << ConsoleColors::red << "Error: Could not open file '" << filename << "' for writing." << ConsoleColors::reset << '\n';
-        return false;
-    }
-    outFile << content;
-    outFile.close();
-    return true;
-}
 
 // --- Main Execution ---
 
@@ -243,21 +249,27 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     const std::vector<std::string>& common_activities = *activities_opt;
-    
+
     auto start_time = std::chrono::high_resolution_clock::now();
 
-    // 3. Generate Log Data
     std::cout << "Generating data....." << '\n';
-    std::string log_content = generate_log_data(config, common_activities);
 
-    // 4. Write to File
+    // 3. 创建文件名并打开文件流
     std::ostringstream filename_ss;
     filename_ss << "log_" << config.num_days << "_items_" << config.items_per_day << ".txt";
     std::string output_filename = filename_ss.str();
 
-    if (!write_output_file(output_filename, log_content)) {
+    std::ofstream outFile(output_filename);
+    if (!outFile.is_open()) {
+        std::cerr << ConsoleColors::red << "Error: Could not open file '" << output_filename << "' for writing." << ConsoleColors::reset << '\n';
         return 1;
     }
+
+    // 4. 生成数据并直接写入文件流
+    generate_log_data(outFile, config, common_activities);
+
+    // 5. 关闭文件
+    outFile.close();
 
     auto end_time = std::chrono::high_resolution_clock::now();
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
