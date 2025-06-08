@@ -8,14 +8,13 @@
 #include <random>      // For random number generation
 #include <cmath>       // For std::round
 #include <memory>      // For std::unique_ptr
-#include <chrono>      // *** ADDED: For timing the execution ***
+#include <chrono>      // For timing the execution
+#include <optional>    // For safely returning from argument parsing and file loading
 
-// Include the nlohmann/json library.
-// Make sure json.hpp is in your include path or in the same directory.
-// If you placed it in a "nlohmann" subdirectory, use "nlohmann/json.hpp"
+// Include the nlohmann/json library
 #include "json.hpp" // Assuming json.hpp is in the same directory or accessible via include paths
 
-// For Windows-specific console codepage setting
+// For Windows-specific console settings
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
 #endif
@@ -23,7 +22,46 @@
 // Use nlohmann::json
 using json = nlohmann::json;
 
-// Helper function to format a number to two digits with a leading zero
+// --- Color and Console Setup ---
+
+// Structure to hold ANSI color codes for console output.
+struct ConsoleColors {
+    static const std::string red;
+    static const std::string green;
+    static const std::string reset;
+};
+
+// Define the static members of ConsoleColors
+const std::string ConsoleColors::red = "\033[1;31m";
+const std::string ConsoleColors::green = "\033[1;32m";
+const std::string ConsoleColors::reset = "\033[0m";
+
+// Sets up the console for UTF-8 and enables ANSI color codes on Windows.
+void setup_console() {
+#if defined(_WIN32) || defined(_WIN64)
+    // Set console output to UTF-8
+    SetConsoleOutputCP(CP_UTF8);
+
+    // Enable virtual terminal processing to handle ANSI escape sequences
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD dwMode = 0;
+        if (GetConsoleMode(hOut, &dwMode)) {
+            dwMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, dwMode);
+        }
+    }
+#endif
+}
+
+
+// --- Configuration and Helper Functions ---
+
+struct Config {
+    int num_days;
+    int items_per_day;
+};
+
 std::string format_two_digits(int n) {
     std::ostringstream ss;
     ss << std::setw(2) << std::setfill('0') << n;
@@ -31,233 +69,201 @@ std::string format_two_digits(int n) {
 }
 
 void print_usage(const char* prog_name) {
-    std::cerr << "Usage: " << prog_name << " <num_days> <items_per_day>" << '\n';
+    std::cerr << ConsoleColors::red << "Usage: " << prog_name << " <num_days> <items_per_day>" << ConsoleColors::reset << '\n';
     std::cerr << "Description: Generates test log data. Reads activities from 'activities_config.json'." << '\n';
     std::cerr << "  <num_days>        : Total number of days to generate (positive integer)." << '\n';
     std::cerr << "  <items_per_day>   : Number of log items per day (positive integer)." << '\n';
     std::cerr << "Example: " << prog_name << " 10 5" << '\n';
 }
 
-// Function to load common activities from a JSON file
-std::vector<std::string> load_activities_from_json(const std::string& json_filename, const std::vector<std::string>& default_activities) {
+// --- Core Logic Functions ---
+
+std::optional<std::vector<std::string>> load_activities_from_json(const std::string& json_filename) {
     std::ifstream f(json_filename);
     if (!f.is_open()) {
-        std::cerr << "Warning: Could not open activities configuration file '" << json_filename << "'. Using default activities." << '\n';
-        return default_activities;
+        std::cerr << ConsoleColors::red << "Error: Could not open activities configuration file '" << json_filename << "'." << ConsoleColors::reset << '\n';
+        return std::nullopt;
     }
 
     try {
         json data = json::parse(f);
-        f.close(); // Close the file stream after parsing
+        f.close();
 
         if (data.contains("common_activities") && data["common_activities"].is_array()) {
-            std::cout << "Successfully loaded activities from '" << json_filename << "'." << '\n';
-            return data["common_activities"].get<std::vector<std::string>>();
+            auto activities = data["common_activities"].get<std::vector<std::string>>();
+            if (activities.empty()) {
+                std::cerr << ConsoleColors::red << "Error: " ConsoleColors::reset << "'common_activities' array in '" << json_filename << "' is empty." << '\n';
+                return std::nullopt;
+            }
+            std::cout << ConsoleColors::green << "Successfully loaded " <<  ConsoleColors::reset << " activities from '" << json_filename << "'."  << '\n';
+            return activities;
         } else {
-            std::cerr << "Warning: JSON file '" << json_filename << "' does not contain a 'common_activities' array or it's not an array. Using default activities." << '\n';
-            return default_activities;
+            std::cerr << ConsoleColors::red << "Error: " << ConsoleColors::reset << "JSON file '" << json_filename   << "' must contain a non-empty 'common_activities' array." << '\n';
+            return std::nullopt;
         }
-    } catch (json::parse_error& e) {
-        std::cerr << "Warning: Failed to parse JSON from '" << json_filename << "'. Error: " << e.what() << ". Using default activities." << '\n';
-        if(f.is_open()) f.close();
-        return default_activities;
-    } catch (json::type_error& e) {
-        std::cerr << "Warning: JSON type error in '" << json_filename << "'. Is 'common_activities' an array of strings? Error: " << e.what() << ". Using default activities." << '\n';
-        if(f.is_open()) f.close();
-        return default_activities;
-    } catch (const std::exception& e) { // Catch other potential exceptions
-        std::cerr << "Warning: An unexpected error occurred while reading or parsing '" << json_filename << "'. Error: " << e.what() << ". Using default activities." << '\n';
-        if(f.is_open()) f.close();
-        return default_activities;
+    } catch (const json::parse_error& e) {
+        std::cerr << ConsoleColors::red << "Error: " << ConsoleColors::reset << "Failed to parse JSON from '" << json_filename << "'. Detail: " << e.what()  << '\n';
+        if (f.is_open()) f.close();
+        return std::nullopt;
+    } catch (const json::type_error& e) {
+        std::cerr << ConsoleColors::red << "Error: "<< ConsoleColors::reset << "JSON type error in '" << json_filename << "'. Is 'common_activities' an array of strings? Detail: " << e.what() << '\n';
+        if (f.is_open()) f.close();
+        return std::nullopt;
+    } catch (const std::exception& e) {
+        std::cerr << ConsoleColors::red << "Error: "<< ConsoleColors::reset << "An unexpected error occurred while processing '" << json_filename << "'. Detail: " << e.what() << '\n';
+        if (f.is_open()) f.close();
+        return std::nullopt;
     }
 }
 
-
-int main(int argc, char* argv[]) {
-#if defined(_WIN32) || defined(_WIN64)
-    SetConsoleOutputCP(CP_UTF8);
-#endif
-
+std::optional<Config> parse_arguments(int argc, char* argv[]) {
     if (argc != 3) {
         print_usage(argv[0]);
-        return 1;
+        return std::nullopt;
     }
 
-    int num_days_val;
-    int items_per_day_val;
-
+    Config config;
     try {
-        num_days_val = std::stoi(argv[1]);
-        items_per_day_val = std::stoi(argv[2]);
-    } catch (const std::invalid_argument& ia) {
-        std::cerr << "Error: Invalid argument. <num_days> and <items_per_day> must be integers." << '\n';
-        std::cerr << ia.what() << '\n';
+        config.num_days = std::stoi(argv[1]);
+        config.items_per_day = std::stoi(argv[2]);
+    } catch (const std::invalid_argument&) {
+        std::cerr << ConsoleColors::red << "Error: Invalid argument. <num_days> and <items_per_day> must be integers." << ConsoleColors::reset << '\n';
         print_usage(argv[0]);
-        return 1;
-    } catch (const std::out_of_range& oor) {
-        std::cerr << "Error: Argument out of range." << '\n';
-        std::cerr << oor.what() << '\n';
+        return std::nullopt;
+    } catch (const std::out_of_range&) {
+        std::cerr << ConsoleColors::red << "Error: Argument out of range." << ConsoleColors::reset << '\n';
         print_usage(argv[0]);
-        return 1;
+        return std::nullopt;
     }
 
-    if (num_days_val <= 0 || items_per_day_val <= 0) {
-        std::cerr << "Error: <num_days> and <items_per_day> must be positive integers." << '\n';
+    if (config.num_days <= 0 || config.items_per_day <= 0) {
+        std::cerr << ConsoleColors::red << "Error: <num_days> and <items_per_day> must be positive integers." << ConsoleColors::reset << '\n';
         print_usage(argv[0]);
-        return 1;
+        return std::nullopt;
     }
-     if (items_per_day_val < 2 && num_days_val > 0) {
-        std::cerr << "Error: <items_per_day> must be at least 2 to include '起床' and '睡觉长'." << '\n';
-        return 1;
+    if (config.items_per_day < 2) {
+        std::cerr << ConsoleColors::red << "Error: <items_per_day> must be at least 2 to include '起床' and '睡觉长'." << ConsoleColors::reset << '\n';
+        return std::nullopt;
     }
+
+    return config;
+}
+
+std::string generate_log_data(const Config& config, const std::vector<std::string>& common_activities) {
+    std::ostringstream log_content_stream;
     
-    // *** MODIFICATION START: Timing logic ***
-    // Record the starting time point, after arguments are validated.
-    auto start_time = std::chrono::high_resolution_clock::now();
-    // *** MODIFICATION END ***
-
-    int start_month = 1;
-    int start_day_of_month = 1;
-
-    std::ostringstream filename_ss;
-    // Using the filename from the third provided C++ file, without ".txt" initially
-    filename_ss << "log_" << num_days_val
-                << "_items_" << items_per_day_val;
-    std::string output_filename_str = filename_ss.str();
-
-
-    if (start_month < 1) start_month = 1;
-    if (start_month > 12) start_month = 12;
-    if (start_day_of_month < 1) start_day_of_month = 1;
-    if (start_day_of_month > 31) start_day_of_month = 31;
-
-    int current_month = start_month;
-    int current_day_of_month = start_day_of_month;
-
-    // Define default activities as a fallback
-    std::vector<std::string> default_common_activities = {
-        "word_default", "饭中_default", "timemaster_default", "休息短_default", "听力_default",
-        "bili_default", "运动_default", "洗澡_default", "refactor_default", "单词_default"
-        // Add more defaults if needed
-    };
-
-    // Load activities from JSON, or use defaults if loading fails
-    std::vector<std::string> common_activities = load_activities_from_json("activities_config.json", default_common_activities);
-
-    if (common_activities.empty() && items_per_day_val > 2) {
-         std::cerr << "Warning: No common activities loaded or defined, and intermediate items are expected. Intermediate items will use 'generic_activity'." << '\n';
-    }
-
-
-    std::ofstream outFile(output_filename_str); // Filename from third C++ example, no .txt here
-    if (!outFile.is_open()) {
-        std::cerr << "Error: Could not open file '" << output_filename_str << "' for writing." << '\n';
-        return 1;
-    }
-
-    std::cout << "Generating data to '" << output_filename_str << "'..." << '\n';
+    int current_month = 1;
+    int current_day_of_month = 1;
 
     std::mt19937 gen(std::random_device{}());
     std::uniform_int_distribution<> dis_minute(0, 59);
-
-    std::unique_ptr<std::uniform_int_distribution<>> dis_activity_selector;
-    if (!common_activities.empty()) {
-        dis_activity_selector = std::make_unique<std::uniform_int_distribution<>>(0, static_cast<int>(common_activities.size()) - 1);
-    }
+    std::uniform_int_distribution<> dis_activity_selector(0, static_cast<int>(common_activities.size()) - 1);
 
     int minute_for_todays_actual_wakeup = dis_minute(gen);
 
-    for (int d = 0; d < num_days_val; ++d) {
-        // MODIFICATION: Use a stringstream to build the content for one day.
-        std::ostringstream day_buffer;
-
-        day_buffer << format_two_digits(current_month) << format_two_digits(current_day_of_month) << '\n';
-
+    for (int d = 0; d < config.num_days; ++d) {
+        log_content_stream << format_two_digits(current_month) << format_two_digits(current_day_of_month) << '\n';
         int minute_for_next_days_scheduled_wakeup = dis_minute(gen);
 
-        for (int i = 0; i < items_per_day_val; ++i) {
+        for (int i = 0; i < config.items_per_day; ++i) {
             int display_hour_final;
             int event_minute_final;
             std::string event_text_to_use_final;
 
-            if (i == items_per_day_val - 1) { // LAST item
-                event_text_to_use_final = "睡觉长";
-                display_hour_final = 6;
-                event_minute_final = minute_for_next_days_scheduled_wakeup;
-            } else if (i == 0) { // FIRST item
+            if (i == 0) {
                 event_text_to_use_final = "起床";
                 display_hour_final = 6;
                 event_minute_final = minute_for_todays_actual_wakeup;
-            } else { // INTERMEDIATE items
-                double progress_ratio = static_cast<double>(i) / (items_per_day_val - 1);
-                int hour_offset = static_cast<int>(std::round(progress_ratio * 19.0));
-                int logical_event_hour = 6 + hour_offset;
-
-                if (logical_event_hour < 6) logical_event_hour = 6;
+            } else if (i == config.items_per_day - 1) {
+                event_text_to_use_final = "睡觉长";
+                display_hour_final = 6;
+                event_minute_final = minute_for_next_days_scheduled_wakeup;
+            } else {
+                double progress_ratio = static_cast<double>(i) / (config.items_per_day - 1);
+                int logical_event_hour = 6 + static_cast<int>(std::round(progress_ratio * 19.0));
                 if (logical_event_hour > 25) logical_event_hour = 25;
-
-                if (logical_event_hour == 24) {
-                    display_hour_final = 0;
-                } else if (logical_event_hour == 25) {
-                    display_hour_final = 1;
-                } else {
-                    display_hour_final = logical_event_hour;
-                }
-
+                display_hour_final = (logical_event_hour >= 24) ? logical_event_hour - 24 : logical_event_hour;
                 event_minute_final = dis_minute(gen);
-
-                if (dis_activity_selector) {
-                    event_text_to_use_final = common_activities[(*dis_activity_selector)(gen)];
-                } else {
-                    event_text_to_use_final = "generic_activity";
-                }
+                event_text_to_use_final = common_activities[dis_activity_selector(gen)];
             }
-            // MODIFICATION: Write to the in-memory day_buffer instead of the file.
-            day_buffer << format_two_digits(display_hour_final) << format_two_digits(event_minute_final) << event_text_to_use_final << '\n';
+            log_content_stream << format_two_digits(display_hour_final) << format_two_digits(event_minute_final) << event_text_to_use_final << '\n';
         }
-
-        // MODIFICATION: Write the entire day's content from the buffer to the file at once.
-        outFile << day_buffer.str();
 
         minute_for_todays_actual_wakeup = minute_for_next_days_scheduled_wakeup;
 
         current_day_of_month++;
         int days_in_current_month = 31;
-        if (current_month == 2) {
-            days_in_current_month = 28;
-        } else if (current_month == 4 || current_month == 6 || current_month == 9 || current_month == 11) {
+        if (current_month == 4 || current_month == 6 || current_month == 9 || current_month == 11) {
             days_in_current_month = 30;
+        } else if (current_month == 2) {
+            days_in_current_month = 28;
         }
 
         if (current_day_of_month > days_in_current_month) {
             current_day_of_month = 1;
-            current_month++;
-            if (current_month > 12) {
-                current_month = 1;
-            }
+            current_month = (current_month % 12) + 1;
         }
 
-        // Add a newline to separate days, except for the very last day.
-        if (d < num_days_val - 1) {
-            outFile << '\n';
+        if (d < config.num_days - 1) {
+            log_content_stream << '\n';
         }
     }
+    return log_content_stream.str();
+}
 
+bool write_output_file(const std::string& filename, const std::string& content) {
+    std::ofstream outFile(filename);
+    if (!outFile.is_open()) {
+        std::cerr << ConsoleColors::red << "Error: Could not open file '" << filename << "' for writing." << ConsoleColors::reset << '\n';
+        return false;
+    }
+    outFile << content;
     outFile.close();
+    return true;
+}
 
-    // Record the ending time point.
+// --- Main Execution ---
+
+int main(int argc, char* argv[]) {
+    // Setup console for colors and UTF-8
+    setup_console();
+
+    // 1. Parse Arguments
+    auto config_opt = parse_arguments(argc, argv);
+    if (!config_opt) {
+        return 1;
+    }
+    Config config = *config_opt;
+
+    // 2. Load Activities
+    auto activities_opt = load_activities_from_json("activities_config.json");
+    if (!activities_opt) {
+        std::cerr << ConsoleColors::red << "Exiting program due to configuration loading failure." << ConsoleColors::reset << std::endl;
+        return 1;
+    }
+    const std::vector<std::string>& common_activities = *activities_opt;
+    
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    // 3. Generate Log Data
+    std::cout << "Generating data..." << '\n';
+    std::string log_content = generate_log_data(config, common_activities);
+
+    // 4. Write to File
+    std::ostringstream filename_ss;
+    filename_ss << "log_" << config.num_days << "_items_" << config.items_per_day;
+    std::string output_filename = filename_ss.str();
+
+    if (!write_output_file(output_filename, log_content)) {
+        return 1;
+    }
+
     auto end_time = std::chrono::high_resolution_clock::now();
-    
-    // Calculate the duration in milliseconds.
     auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
-    
-    // Calculate the duration in seconds as a floating-point number for better readability on longer tasks.
     auto duration_s = std::chrono::duration<double>(end_time - start_time);
 
-    std::cout << "Data generation complete. Output is in '" << output_filename_str << "'" << '\n';
-    
-    // Print the elapsed time.
-    std::cout << "Total generation time: " << duration_ms.count() << " ms (" << std::fixed << std::setprecision(3) << duration_s.count() << " s)." << '\n';
+    std::cout << ConsoleColors::green << "Data generation complete. "<< ConsoleColors::reset << "Output is in '" << output_filename << "'"  << '\n';
+    std::cout <<  "Total generation time: " << duration_ms.count() << " ms (" << std::fixed << std::setprecision(3) << duration_s.count() << " s)." << '\n';
 
     return 0;
 }
