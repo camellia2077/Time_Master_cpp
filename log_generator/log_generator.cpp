@@ -91,8 +91,9 @@ std::optional<std::vector<std::string>> load_activities_from_json(const std::str
 
         if (data.contains("common_activities") && data["common_activities"].is_array()) {
             auto activities = data["common_activities"].get<std::vector<std::string>>();
-            if (activities.empty()) {
-                std::cerr << ConsoleColors::red << "Error: " ConsoleColors::reset << "'common_activities' array in '" << json_filename << "' is empty." << '\n';
+            if (activities.empty()) 
+            {
+                std::cerr << ConsoleColors::red << "Error: "  << ConsoleColors::reset << "\"common_activities\" array in '" << json_filename << "' is empty." << '\n';
                 return std::nullopt;
             }
             std::cout << ConsoleColors::green << "Successfully loaded " <<  ConsoleColors::reset << " activities from '" << json_filename << "'."  << '\n';
@@ -246,12 +247,12 @@ int main(int argc, char* argv[]) {
     auto start_time = std::chrono::high_resolution_clock::now();
 
     // 3. Generate Log Data
-    std::cout << "Generating data..." << '\n';
+    std::cout << "Generating data....." << '\n';
     std::string log_content = generate_log_data(config, common_activities);
 
     // 4. Write to File
     std::ostringstream filename_ss;
-    filename_ss << "log_" << config.num_days << "_items_" << config.items_per_day;
+    filename_ss << "log_" << config.num_days << "_items_" << config.items_per_day << ".txt";
     std::string output_filename = filename_ss.str();
 
     if (!write_output_file(output_filename, log_content)) {
