@@ -2,9 +2,10 @@ import sys
 import sqlite3
 import json
 from datetime import datetime, timedelta
-from typing import Dict
+from typing import Dict, Optional
+import argparse # 导入 argparse 用于更好地处理命令行参数
 
-# 新增 Matplotlib 和 NumPy 的导入
+# 导入 Matplotlib 和 NumPy
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import numpy as np
@@ -37,20 +38,41 @@ class HeatmapGenerator:
     """
     根据时间跟踪数据为指定年份生成学习热力图 (支持SVG和Matplotlib两种格式)。
     """
-    def __init__(self, study_times: Dict[str, int], year: int, config: dict):
+    # 修改 __init__ 方法以接受可选的调色板名称
+    def __init__(self, study_times: Dict[str, int], year: int, config: dict, palette_name: Optional[str] = None):
         self.year = year
         self.config = config
         self.study_times = study_times
         
         self.color_palettes = config['COLOR_PALETTES']
         self.single_colors = config.get('SINGLE_COLORS', {})
-        self.default_color_palette = self.color_palettes[config['DEFAULT_COLOR_PALETTE_NAME']]
+        
+        # --- 代码修改部分 ---
+        # 根据输入或配置文件的默认值来决定使用哪个调色板
+        chosen_palette_name = palette_name
+        
+        # 如果提供了调色板名称，检查其是否有效
+        if chosen_palette_name and chosen_palette_name not in self.color_palettes:
+            print(f"警告: 在配置中未找到调色板 '{chosen_palette_name}'。")
+            print(f"可用的调色板有: {', '.join(self.color_palettes.keys())}")
+            chosen_palette_name = None # 重置以使用默认值
+
+        # 如果没有选择有效的调色板，则使用配置文件中的默认值
+        if not chosen_palette_name:
+            chosen_palette_name = config.get('DEFAULT_COLOR_PALETTE_NAME', 'GITHUB_GREEN_LIGHT')
+            print(f"正在使用默认调色板: '{chosen_palette_name}'")
+        else:
+            print(f"正在使用指定的调色板: '{chosen_palette_name}'")
+            
+        # 设置最终的调色板
+        self.default_color_palette = self.color_palettes[chosen_palette_name]
+        # --- 修改结束 ---
         
         over_12_hours_color_ref = config.get('OVER_12_HOURS_COLOR_REF')
         if over_12_hours_color_ref and over_12_hours_color_ref in self.single_colors:
             self.over_12_hours_color = self.single_colors[over_12_hours_color_ref]
         else:
-            print(f"Warning: Color reference '{over_12_hours_color_ref}' not found. Using default orange.")
+            print(f"警告: 颜色引用 '{over_12_hours_color_ref}' 未找到。将使用默认的橙色。")
             self.over_12_hours_color = "#f97148"
 
         self.heatmap_data = []
@@ -178,22 +200,17 @@ class HeatmapGenerator:
     def generate_mpl_heatmap(self, output_filename: str):
         """
         使用 Matplotlib 生成一个 GitHub 风格的热力图并保存为 PNG 或 SVG 文件。
-        这个版本会生成更清晰、尺寸更大的图像，并且热力图的方块是圆角的。
         """
-        # 1. 准备数据
         weeks = len(self.heatmap_data) // 7
         
-        # 2. 定义颜色映射和标准化
         colors = self.default_color_palette + [self.over_12_hours_color]
         bounds = [0, 0.01, 4, 8, 10, 12, 24] # 0.01 用于区分 0 和 极小值
         cmap = mcolors.ListedColormap(colors)
         norm = mcolors.BoundaryNorm(bounds, cmap.N)
         
-        # 3. 创建图形和坐标轴 (增大figsize以生成更大尺寸的图像)
         fig, ax = plt.subplots(figsize=(weeks * 0.3, 7 * 0.3), dpi=600)
         fig.patch.set_facecolor('white')
 
-        # 4. 绘制热力图 (使用圆角矩形)
         for week_idx in range(weeks):
             for day_idx in range(7):
                 date_info_index = week_idx * 7 + day_idx
@@ -212,7 +229,6 @@ class HeatmapGenerator:
                         )
                         ax.add_patch(rect)
         
-        # 5. 设置坐标轴和标签
         ax.set_xlim(0, weeks)
         ax.set_ylim(0, 7)
         ax.invert_yaxis()
@@ -221,7 +237,6 @@ class HeatmapGenerator:
         ax.set_yticks(np.arange(7) + 0.5)
         ax.set_yticklabels(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], fontsize=8)
         
-        # --- 设置月份标签 ---
         month_labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         month_ticks = []
         month_tick_labels = []
@@ -239,41 +254,40 @@ class HeatmapGenerator:
         ax.set_xticks(np.array(month_ticks) + 0.5)
         ax.set_xticklabels(month_tick_labels, fontsize=8, ha='center')
         
-        # 6. 美化图形
         ax.set_title(f'Study Activity for {self.year}', loc='left', fontsize=12, pad=20)
         ax.tick_params(axis='both', which='both', length=0)
         for spine in ax.spines.values():
             spine.set_visible(False)
         
-        # 7. 保存图形
         plt.tight_layout(pad=1.5)
-        # 根据文件名后缀自动保存为对应格式
         plt.savefig(output_filename, bbox_inches='tight')
         plt.close()
 
 
-def load_config(config_path: str = 'heatmap_colors_config.json') -> dict:
+def load_config(config_path: str = 'heatmap_colors_config.json') -> dict: # 加载颜色配置文件
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
-        print(f"Error: Configuration file '{config_path}' not found.")
+        print(f"错误: 配置文件 '{config_path}' 未找到。")
         sys.exit(1)
     except json.JSONDecodeError:
-        print(f"Error: Could not decode JSON from '{config_path}'. Check file format.")
+        print(f"错误: 无法解析 '{config_path}' 中的 JSON。请检查文件格式。")
         sys.exit(1)
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python heatmap_generator.py <year>")
-        sys.exit(1)
-
-    try:
-        year_arg = int(sys.argv[1])
-    except ValueError:
-        print("Error: Year must be an integer.")
-        sys.exit(1)
-
+    # --- 代码修改部分 ---
+    # 使用 argparse 来处理命令行参数
+    parser = argparse.ArgumentParser(description='为指定年份生成学习热力图。')
+    parser.add_argument('year', type=int, help='需要生成热力图的年份。')
+    parser.add_argument('--palette', type=str, help='要使用的调色板名称(需在配置文件中定义)。')
+    
+    args = parser.parse_args()
+    
+    year_arg = args.year
+    palette_arg = args.palette
+    # --- 修改结束 ---
+    
     config_data = load_config()
     db_path = 'time_data.db'
     db_conn = None
@@ -283,27 +297,28 @@ if __name__ == "__main__":
         data_reader = StudyDataReader(db_conn)
         study_data = data_reader.fetch_yearly_study_times(year_arg)
         
-        heatmap_generator = HeatmapGenerator(study_data, year_arg, config_data)
+        # 将可选的调色板名称传递给生成器
+        heatmap_generator = HeatmapGenerator(study_data, year_arg, config_data, palette_name=palette_arg)
         
-        # 1. 生成HTML/SVG输出文件 (原始方法)
+        # 1. 生成 HTML/SVG 输出文件
         output_html_file = f"study_heatmap_{year_arg}.html"
         heatmap_generator.generate_html_output(output_html_file)
-        print(f"HTML heatmap generated successfully: {output_html_file}")
+        print(f"HTML 热力图生成成功: {output_html_file}")
         
-        # 2. 使用 Matplotlib 生成 PNG 位图
+        # 2. 使用 Matplotlib 生成 PNG
         output_image_file = f"study_heatmap_{year_arg}_mpl.png"
         heatmap_generator.generate_mpl_heatmap(output_image_file)
-        print(f"High-resolution PNG heatmap generated successfully: {output_image_file}")
+        print(f"高分辨率 PNG 热力图生成成功: {output_image_file}")
 
-        # 3. (新增) 使用 Matplotlib 生成 SVG 矢量图
+        # 3. 使用 Matplotlib 生成 SVG
         output_svg_file = f"study_heatmap_{year_arg}_mpl.svg"
         heatmap_generator.generate_mpl_heatmap(output_svg_file)
-        print(f"Vector (SVG) heatmap generated successfully: {output_svg_file}")
+        print(f"矢量 (SVG) 热力图生成成功: {output_svg_file}")
 
     except sqlite3.Error as e:
-        print(f"Database error: {e}")
+        print(f"数据库错误: {e}")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"发生了意外错误: {e}")
     finally:
         if db_conn:
             db_conn.close()
