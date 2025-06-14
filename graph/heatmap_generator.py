@@ -177,8 +177,8 @@ class HeatmapGenerator:
 
     def generate_mpl_heatmap(self, output_filename: str):
         """
-        使用 Matplotlib 生成一个 GitHub 风格的热力图并保存为 PNG 文件。
-        这个版本会生成更清晰的图像，并且热力图的方块是圆角的。
+        使用 Matplotlib 生成一个 GitHub 风格的热力图并保存为 PNG 或 SVG 文件。
+        这个版本会生成更清晰、尺寸更大的图像，并且热力图的方块是圆角的。
         """
         # 1. 准备数据
         weeks = len(self.heatmap_data) // 7
@@ -189,26 +189,21 @@ class HeatmapGenerator:
         cmap = mcolors.ListedColormap(colors)
         norm = mcolors.BoundaryNorm(bounds, cmap.N)
         
-        # 3. 创建图形和坐标轴 (提高DPI以获得更清晰的图像)
+        # 3. 创建图形和坐标轴 (增大figsize以生成更大尺寸的图像)
         fig, ax = plt.subplots(figsize=(weeks * 0.3, 7 * 0.3), dpi=600)
         fig.patch.set_facecolor('white')
 
         # 4. 绘制热力图 (使用圆角矩形)
-        # 移除 pcolormesh，手动绘制每个方块以实现圆角
         for week_idx in range(weeks):
             for day_idx in range(7):
-                # 检查这是否是一个有效的日期，而不是一个占位符
                 date_info_index = week_idx * 7 + day_idx
                 if date_info_index < len(self.heatmap_data):
                     date_obj, _, study_seconds = self.heatmap_data[date_info_index]
                     if date_obj is not None:
                         hour_val = study_seconds / 3600.0
                         color = cmap(norm(hour_val))
-                        
-                        # 使用 FancyBboxPatch 来创建圆角矩形
-                        # width 和 height < 1 来创建方块间的间距
                         rect = patches.FancyBboxPatch(
-                            (week_idx + 0.05, 6 - day_idx + 0.05), # Y轴反转，所以用 6 - day_idx
+                            (week_idx + 0.05, 6 - day_idx + 0.05), # Y轴反转
                             0.9, 0.9,
                             boxstyle="round,pad=0,rounding_size=0.1",
                             facecolor=color,
@@ -220,8 +215,8 @@ class HeatmapGenerator:
         # 5. 设置坐标轴和标签
         ax.set_xlim(0, weeks)
         ax.set_ylim(0, 7)
-        ax.invert_yaxis() # 反转Y轴，使星期日(0)在顶部
-        ax.set_aspect('equal') # 保证方块是正方形
+        ax.invert_yaxis()
+        ax.set_aspect('equal')
 
         ax.set_yticks(np.arange(7) + 0.5)
         ax.set_yticklabels(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], fontsize=8)
@@ -236,7 +231,6 @@ class HeatmapGenerator:
             if first_date_in_week:
                 current_month = first_date_in_week.month
                 if current_month != last_month:
-                    # 仅在月份变化时添加标签
                     if week_idx > 0 or first_date_in_week.day == 1:
                          month_ticks.append(week_idx)
                          month_tick_labels.append(month_labels[current_month - 1])
@@ -253,6 +247,7 @@ class HeatmapGenerator:
         
         # 7. 保存图形
         plt.tight_layout(pad=1.5)
+        # 根据文件名后缀自动保存为对应格式
         plt.savefig(output_filename, bbox_inches='tight')
         plt.close()
 
@@ -290,15 +285,20 @@ if __name__ == "__main__":
         
         heatmap_generator = HeatmapGenerator(study_data, year_arg, config_data)
         
-        # 1. (保留) 生成HTML/SVG输出文件
+        # 1. 生成HTML/SVG输出文件 (原始方法)
         output_html_file = f"study_heatmap_{year_arg}.html"
         heatmap_generator.generate_html_output(output_html_file)
         print(f"HTML heatmap generated successfully: {output_html_file}")
         
-        # 2. (更新) 使用 Matplotlib 生成更清晰的圆角热力图
+        # 2. 使用 Matplotlib 生成 PNG 位图
         output_image_file = f"study_heatmap_{year_arg}_mpl.png"
         heatmap_generator.generate_mpl_heatmap(output_image_file)
-        print(f"High-resolution Matplotlib heatmap with rounded corners generated successfully: {output_image_file}")
+        print(f"High-resolution PNG heatmap generated successfully: {output_image_file}")
+
+        # 3. (新增) 使用 Matplotlib 生成 SVG 矢量图
+        output_svg_file = f"study_heatmap_{year_arg}_mpl.svg"
+        heatmap_generator.generate_mpl_heatmap(output_svg_file)
+        print(f"Vector (SVG) heatmap generated successfully: {output_svg_file}")
 
     except sqlite3.Error as e:
         print(f"Database error: {e}")
