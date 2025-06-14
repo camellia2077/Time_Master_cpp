@@ -3,6 +3,7 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 from typing import Dict
+from html2image import Html2Image
 
 class StudyDataReader:
     """
@@ -72,6 +73,10 @@ class HeatmapGenerator:
 
         self.heatmap_data = []
         self.svg_params = {}
+        self.html_content = ""
+        self.container_html = ""
+        self.style_css = ""
+
 
     @staticmethod
     def _time_format_duration(seconds: int, avg_days: int = 1) -> str:
@@ -236,34 +241,40 @@ class HeatmapGenerator:
         ]
         full_svg_content = '\n'.join(svg_components)
 
-        html_content = f"""
+        self.style_css = f"""
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"; }}
+        .heatmap-container {{
+            display: inline-block;
+            padding: 15px;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            background-color: #ffffff;
+        }}
+         h2 {{ margin-left: {self.svg_params.get('margin_left', 35)}px; font-weight: 400; color: #24292f;}}
+        """
+
+        self.container_html = f"""
+        <div class="heatmap-container">
+        <h2>Study Activity for {self.year}</h2>
+        {full_svg_content}
+        </div>
+        """
+
+        self.html_content = f"""
     <!DOCTYPE html>
     <html>
     <head>
         <meta charset="UTF-8">
         <title>Study Heatmap {self.year}</title>
-        <style>
-            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"; }}
-            .heatmap-container {{
-                display: inline-block;
-                padding: 15px;
-                border: 1px solid #d0d7de;
-                border-radius: 6px;
-                background-color: #ffffff;
-            }}
-             h2 {{ margin-left: {self.svg_params.get('margin_left', 35)}px; font-weight: 400; color: #24292f;}}
-        </style>
+        <style>{self.style_css}</style>
     </head>
     <body>
-        <div class="heatmap-container">
-        <h2>Study Activity for {self.year}</h2>
-        {full_svg_content}
-        </div>
+        {self.container_html}
     </body>
     </html>
     """
         with open(output_filename, 'w', encoding='utf-8') as f:
-            f.write(html_content)
+            f.write(self.html_content)
 
 def load_config(config_path: str = 'heatmap_colors_config.json') -> dict:
     """Loads the configuration from a JSON file."""
@@ -301,12 +312,22 @@ if __name__ == "__main__":
         # 2. Instantiate the generator with the fetched data
         heatmap_generator = HeatmapGenerator(study_data, year_arg, config_data)
         
-        # 3. Generate the output file
-        output_file = f"study_heatmap_{year_arg}.html"
-        heatmap_generator.generate_html_output(output_file)
+        # 3. Generate the HTML output file
+        output_html_file = f"study_heatmap_{year_arg}.html"
+        heatmap_generator.generate_html_output(output_html_file)
+        print(f"HTML heatmap generated successfully: {output_html_file}")
         
-        print(f"Heatmap generated successfully: {output_file}")
-        
+        # 4. Convert HTML to Image by screenshotting a string with CSS
+        hti = Html2Image()
+        output_image_file = f"study_heatmap_{year_arg}.png"
+
+        hti.screenshot(
+            html_str=heatmap_generator.container_html,
+            css_str=heatmap_generator.style_css,
+            save_as=output_image_file,
+        )
+        print(f"Image heatmap generated successfully: {output_image_file}")
+
     except sqlite3.Error as e:
         print(f"Database error: {e}")
     except Exception as e:
