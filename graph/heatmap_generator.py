@@ -3,31 +3,24 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 from typing import Dict
-from html2image import Html2Image
+
+# 新增 Matplotlib 和 NumPy 的导入
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import numpy as np
+
+# from html2image import Html2Image  # 不再需要此库
 
 class StudyDataReader:
     """
-    Reads study time data from a SQLite database for a specific year.
+    从SQLite数据库中读取指定年份的学习时间数据。
     """
-
     def __init__(self, conn: sqlite3.Connection):
-        """
-        Initializes the StudyDataReader.
-
-        Args:
-            conn (sqlite3.Connection): The database connection object.
-        """
         self.conn = conn
 
     def fetch_yearly_study_times(self, year: int) -> Dict[str, int]:
         """
-        Fetches the total daily study times for a given year from the database.
-
-        Args:
-            year (int): The year for which to fetch data.
-
-        Returns:
-            A dictionary mapping date strings ('YYYYMMDD') to total study seconds.
+        从数据库中获取指定年份的每日总学习时间。
         """
         cursor = self.conn.cursor()
         start_date_str = f"{year}0101"
@@ -43,18 +36,9 @@ class StudyDataReader:
 
 class HeatmapGenerator:
     """
-    Generates an HTML/SVG study heatmap for a given year based on time tracking data.
+    根据时间跟踪数据为指定年份生成学习热力图 (支持SVG和Matplotlib两种格式)。
     """
-
     def __init__(self, study_times: Dict[str, int], year: int, config: dict):
-        """
-        Initializes the HeatmapGenerator.
-
-        Args:
-            study_times (Dict[str, int]): A dictionary of study times with date strings as keys.
-            year (int): The year for which to generate the heatmap.
-            config (dict): A configuration dictionary loaded from JSON.
-        """
         self.year = year
         self.config = config
         self.study_times = study_times
@@ -63,35 +47,31 @@ class HeatmapGenerator:
         self.single_colors = config.get('SINGLE_COLORS', {})
         self.default_color_palette = self.color_palettes[config['DEFAULT_COLOR_PALETTE_NAME']]
         
-        # Resolve the color for sessions over 12 hours using the reference from config
         over_12_hours_color_ref = config.get('OVER_12_HOURS_COLOR_REF')
         if over_12_hours_color_ref and over_12_hours_color_ref in self.single_colors:
             self.over_12_hours_color = self.single_colors[over_12_hours_color_ref]
         else:
             print(f"Warning: Color reference '{over_12_hours_color_ref}' not found. Using default orange.")
-            self.over_12_hours_color = "#f97148"  # Fallback color
+            self.over_12_hours_color = "#f97148"
 
         self.heatmap_data = []
         self.svg_params = {}
         self.html_content = ""
         self.container_html = ""
         self.style_css = ""
-
+        
+        # 准备数据，供两种生成方法使用
+        self._prepare_heatmap_layout_data()
 
     @staticmethod
     def _time_format_duration(seconds: int, avg_days: int = 1) -> str:
-        """
-        Formats a duration in seconds to a string (e.g., "Xh YYm") and optionally an average.
-        """
         if seconds is None:
             seconds = 0
-        
         total_hours = int(seconds // 3600)
         total_minutes = int((seconds % 3600) // 60)
         time_str = f"{total_hours}h{total_minutes:02d}" if total_hours > 0 else f"{total_minutes}m"
         if total_hours == 0 and total_minutes == 0:
             time_str = "0m"
-
         if avg_days > 1:
             avg_seconds_per_day = seconds / avg_days
             avg_hours = int(avg_seconds_per_day // 3600)
@@ -101,9 +81,6 @@ class HeatmapGenerator:
         return time_str
 
     def _get_color_for_study_time(self, study_time_seconds: int) -> str:
-        """
-        Determines the heatmap cell color based on study duration.
-        """
         hours = study_time_seconds / 3600
         if hours == 0:
             return self.default_color_palette[0]
@@ -119,25 +96,14 @@ class HeatmapGenerator:
             return self.over_12_hours_color
 
     def _prepare_heatmap_layout_data(self):
-        """
-        Calculates date-related layout parameters and populates self.heatmap_data.
-        """
         start_date_obj = datetime(self.year, 1, 1)
         end_date_obj = datetime(self.year, 12, 31)
-        
-        self.svg_params['start_date_obj'] = start_date_obj
-        self.svg_params['end_date_obj'] = end_date_obj
-
-        # Python's isoweekday() is Mon=1..Sun=7. (isoweekday % 7) gives Sun=0..Sat=6.
         front_empty_days = start_date_obj.isoweekday() % 7
-        self.svg_params['front_empty_days'] = front_empty_days
-
         total_days_in_year = (end_date_obj - start_date_obj).days + 1
         total_slots = front_empty_days + total_days_in_year
         back_empty_days = (7 - (total_slots % 7)) % 7
         
         self.heatmap_data = [(None, 'empty', 0)] * front_empty_days
-
         current_date = start_date_obj
         while current_date <= end_date_obj:
             date_str_yyyymmdd = current_date.strftime("%Y%m%d")
@@ -145,44 +111,22 @@ class HeatmapGenerator:
             color = self._get_color_for_study_time(study_time_seconds)
             self.heatmap_data.append((current_date, color, study_time_seconds))
             current_date += timedelta(days=1)
-
         self.heatmap_data.extend([(None, 'empty', 0)] * back_empty_days)
 
     def _calculate_svg_dimensions(self):
-        """
-        Calculates SVG dimensions, cell sizes, margins, and other rendering parameters.
-        """
-        if not self.heatmap_data:
-            self._prepare_heatmap_layout_data()
-
+        if not self.heatmap_data: self._prepare_heatmap_layout_data()
         self.svg_params.update({
-            'cell_size': 12,
-            'spacing': 3,
-            'weeks': len(self.heatmap_data) // 7,
-            'rows': 7,
-            'margin_top': 30,
-            'margin_left': 35
+            'cell_size': 12, 'spacing': 3, 'weeks': len(self.heatmap_data) // 7,
+            'rows': 7, 'margin_top': 30, 'margin_left': 35
         })
-        
-        self.svg_params['width'] = (
-            self.svg_params['margin_left'] + 
-            self.svg_params['weeks'] * (self.svg_params['cell_size'] + self.svg_params['spacing']) - 
-            self.svg_params['spacing']
-        )
-        self.svg_params['height'] = (
-            self.svg_params['margin_top'] + 
-            self.svg_params['rows'] * (self.svg_params['cell_size'] + self.svg_params['spacing']) - 
-            self.svg_params['spacing']
-        )
+        self.svg_params['width'] = (self.svg_params['margin_left'] + self.svg_params['weeks'] * (self.svg_params['cell_size'] + self.svg_params['spacing']) - self.svg_params['spacing'])
+        self.svg_params['height'] = (self.svg_params['margin_top'] + self.svg_params['rows'] * (self.svg_params['cell_size'] + self.svg_params['spacing']) - self.svg_params['spacing'])
 
     def _generate_svg_header(self) -> str:
-        """Generates the opening SVG tag."""
         return f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.svg_params["width"]}" height="{self.svg_params["height"]}" style="font-family: Arial, sans-serif;">'
 
     def _generate_day_labels_svg(self) -> list:
-        """Generates SVG for day labels (Mon, Wed, Fri)."""
-        svg_elements = []
-        day_labels_display = {1: 'Mon', 3: 'Wed', 5: 'Fri'}
+        svg_elements, day_labels_display = [], {1: 'Mon', 3: 'Wed', 5: 'Fri'}
         for i in range(self.svg_params['rows']):
             if i in day_labels_display:
                 y_pos = self.svg_params['margin_top'] + i * (self.svg_params['cell_size'] + self.svg_params['spacing']) + self.svg_params['cell_size'] - 2
@@ -190,15 +134,9 @@ class HeatmapGenerator:
         return svg_elements
 
     def _generate_month_labels_svg(self) -> list:
-        """Generates SVG for month labels."""
-        svg_elements = []
-        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        last_month_drawn = -1
-        
+        svg_elements, month_names, last_month_drawn = [], ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], -1
         for week_idx in range(self.svg_params['weeks']):
-            # Find the first valid date in the week to determine the month
             first_date_in_week = next((self.heatmap_data[week_idx * 7 + i][0] for i in range(7) if self.heatmap_data[week_idx * 7 + i][0]), None)
-            
             if first_date_in_week:
                 current_month_idx = first_date_in_week.month - 1
                 if current_month_idx != last_month_drawn and (first_date_in_week.day < 8 or week_idx == 0):
@@ -208,76 +146,96 @@ class HeatmapGenerator:
         return svg_elements
 
     def _generate_data_cells_svg(self) -> list:
-        """Generates SVG for each data cell (rectangles) in the heatmap."""
         svg_elements = []
         for i, (date_obj, color, study_time_seconds) in enumerate(self.heatmap_data):
             if date_obj is not None:
                 col_idx, row_idx = divmod(i, self.svg_params['rows'])
                 x_pos = self.svg_params['margin_left'] + col_idx * (self.svg_params['cell_size'] + self.svg_params['spacing'])
                 y_pos = self.svg_params['margin_top'] + row_idx * (self.svg_params['cell_size'] + self.svg_params['spacing'])
-                
                 duration_str = self._time_format_duration(study_time_seconds)
                 title_text = f"{date_obj.strftime('%Y-%m-%d')}: {duration_str}"
-                
-                svg_elements.append(f'  <rect width="{self.svg_params["cell_size"]}" height="{self.svg_params["cell_size"]}" x="{x_pos}" y="{y_pos}" fill="{color}" rx="2" ry="2">')
-                svg_elements.append(f'    <title>{title_text}</title>')
-                svg_elements.append(f'  </rect>')
+                svg_elements.extend([
+                    f'  <rect width="{self.svg_params["cell_size"]}" height="{self.svg_params["cell_size"]}" x="{x_pos}" y="{y_pos}" fill="{color}" rx="2" ry="2">',
+                    f'    <title>{title_text}</title>',
+                    f'  </rect>'
+                ])
         return svg_elements
 
     def generate_html_output(self, output_filename: str):
-        """
-        Orchestrates the generation of the full heatmap SVG, embeds it in an HTML file,
-        and writes it to the specified file.
-        """
-        self._prepare_heatmap_layout_data()
         self._calculate_svg_dimensions()
-
-        svg_components = [
-            self._generate_svg_header(),
-            *self._generate_day_labels_svg(),
-            *self._generate_month_labels_svg(),
-            *self._generate_data_cells_svg(),
-            '</svg>'
-        ]
-        full_svg_content = '\n'.join(svg_components)
-
+        full_svg_content = '\n'.join([
+            self._generate_svg_header(), *self._generate_day_labels_svg(),
+            *self._generate_month_labels_svg(), *self._generate_data_cells_svg(), '</svg>'
+        ])
         self.style_css = f"""
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji"; }}
-        .heatmap-container {{
-            display: inline-block;
-            padding: 15px;
-            border: 1px solid #d0d7de;
-            border-radius: 6px;
-            background-color: #ffffff;
-        }}
-         h2 {{ margin-left: {self.svg_params.get('margin_left', 35)}px; font-weight: 400; color: #24292f;}}
-        """
-
-        self.container_html = f"""
-        <div class="heatmap-container">
-        <h2>Study Activity for {self.year}</h2>
-        {full_svg_content}
-        </div>
-        """
-
-        self.html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="UTF-8">
-        <title>Study Heatmap {self.year}</title>
-        <style>{self.style_css}</style>
-    </head>
-    <body>
-        {self.container_html}
-    </body>
-    </html>
-    """
+        .heatmap-container {{ display: inline-block; padding: 15px; border: 1px solid #d0d7de; border-radius: 6px; background-color: #ffffff; }}
+        h2 {{ margin-left: {self.svg_params.get('margin_left', 35)}px; font-weight: 400; color: #24292f;}}"""
+        self.container_html = f"""<div class="heatmap-container"><h2>Study Activity for {self.year}</h2>{full_svg_content}</div>"""
+        self.html_content = f"""<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Study Heatmap {self.year}</title><style>{self.style_css}</style></head><body>{self.container_html}</body></html>"""
         with open(output_filename, 'w', encoding='utf-8') as f:
             f.write(self.html_content)
 
+    def generate_mpl_heatmap(self, output_filename: str):
+        """
+        使用 Matplotlib 生成一个 GitHub 风格的热力图并保存为 PNG 文件。
+        """
+        # 1. 准备数据
+        seconds_data = [d[2] for d in self.heatmap_data]
+        hours_data = np.array(seconds_data) / 3600.0
+        weeks = len(self.heatmap_data) // 7
+        grid_data = hours_data.reshape(weeks, 7).T
+        
+        # 2. 定义颜色映射和标准化
+        colors = self.default_color_palette + [self.over_12_hours_color]
+        bounds = [0, 0.01, 4, 8, 10, 12, 24] # 0.01 用于区分 0 和 极小值
+        cmap = mcolors.ListedColormap(colors)
+        norm = mcolors.BoundaryNorm(bounds, cmap.N)
+        
+        # 3. 创建图形和坐标轴
+        fig, ax = plt.subplots(figsize=(weeks * 0.2, 7 * 0.2), dpi=150)
+        fig.patch.set_facecolor('white')
+
+        # 4. 绘制热力图
+        ax.pcolormesh(grid_data, cmap=cmap, norm=norm, edgecolors='white', linewidth=2)
+
+        # 5. 设置坐标轴和标签
+        ax.invert_yaxis()
+        ax.set_yticks(np.arange(7) + 0.5)
+        ax.set_yticklabels(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], fontsize=8)
+        
+        # --- 已修正的月份标签逻辑 ---
+        # 设置月份标签
+        month_labels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        month_ticks = []
+        month_tick_labels = []
+        last_month = -1
+        for week_idx in range(weeks):
+            # 找到本周的第一个有效日期来确定月份
+            first_date_in_week = next((self.heatmap_data[week_idx * 7 + i][0] for i in range(7) if self.heatmap_data[week_idx * 7 + i][0]), None)
+            if first_date_in_week:
+                current_month = first_date_in_week.month
+                if current_month != last_month:
+                    month_ticks.append(week_idx)
+                    month_tick_labels.append(month_labels[current_month - 1])
+                    last_month = current_month
+        ax.set_xticks(np.array(month_ticks) + 0.5)
+        ax.set_xticklabels(month_tick_labels, fontsize=8, ha='left')
+        
+        # 6. 美化图形
+        ax.set_title(f'Study Activity for {self.year}', loc='left', fontsize=12)
+        ax.tick_params(axis='both', which='both', length=0)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.set_aspect('equal')
+        
+        # 7. 保存图形
+        plt.tight_layout(pad=1.5)
+        plt.savefig(output_filename, bbox_inches='tight')
+        plt.close()
+
+
 def load_config(config_path: str = 'heatmap_colors_config.json') -> dict:
-    """Loads the configuration from a JSON file."""
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             return json.load(f)
@@ -305,28 +263,20 @@ if __name__ == "__main__":
     try:
         db_conn = sqlite3.connect(db_path)
         
-        # 1. Instantiate the data reader and fetch data
         data_reader = StudyDataReader(db_conn)
         study_data = data_reader.fetch_yearly_study_times(year_arg)
         
-        # 2. Instantiate the generator with the fetched data
         heatmap_generator = HeatmapGenerator(study_data, year_arg, config_data)
         
-        # 3. Generate the HTML output file
+        # 1. (保留) 生成HTML输出文件
         output_html_file = f"study_heatmap_{year_arg}.html"
         heatmap_generator.generate_html_output(output_html_file)
         print(f"HTML heatmap generated successfully: {output_html_file}")
         
-        # 4. Convert HTML to Image by screenshotting a string with CSS
-        hti = Html2Image()
+        # 2. (新增) 使用 Matplotlib 生成 PNG 图像文件
         output_image_file = f"study_heatmap_{year_arg}.png"
-
-        hti.screenshot(
-            html_str=heatmap_generator.container_html,
-            css_str=heatmap_generator.style_css,
-            save_as=output_image_file,
-        )
-        print(f"Image heatmap generated successfully: {output_image_file}")
+        heatmap_generator.generate_mpl_heatmap(output_image_file)
+        print(f"Matplotlib heatmap generated successfully: {output_image_file}")
 
     except sqlite3.Error as e:
         print(f"Database error: {e}")
