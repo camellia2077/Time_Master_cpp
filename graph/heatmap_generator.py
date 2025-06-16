@@ -4,6 +4,7 @@ import datetime
 import os
 import sys
 import json
+import calendar
 from typing import Dict, Any, List
 
 # --- Configuration ---
@@ -117,8 +118,8 @@ class HeatmapGenerator:
         else:             # hours <= 0
             return self.color_palette[0]
 
-    def _generate_svg_content(self, year: int, project_name: str, data: Dict[datetime.date, float]) -> str:
-        """为热力图生成SVG内容。"""
+    def _generate_annual_svg_content(self, year: int, project_name: str, data: Dict[datetime.date, float]) -> str:
+        """为年度热力图生成SVG内容。"""
         SQUARE_SIZE, SQUARE_GAP, SQUARE_RADIUS = 12, 3, 2
         GRID_UNIT = SQUARE_SIZE + SQUARE_GAP
         LEFT_PADDING, TOP_PADDING = 30, 30
@@ -170,12 +171,68 @@ class HeatmapGenerator:
             {"\n".join(rects_html)}
         </svg>
         """
+    
+    def _generate_monthly_svg_content(self, year: int, month: int, project_name: str, data: Dict[datetime.date, float]) -> str:
+        """为单个月份的热力图生成SVG内容。"""
+        SQUARE_SIZE, SQUARE_GAP, SQUARE_RADIUS = 12, 3, 2
+        GRID_UNIT = SQUARE_SIZE + SQUARE_GAP
+        LEFT_PADDING, TOP_PADDING = 30, 20
+
+        month_start_date = datetime.date(year, month, 1)
+        num_days_in_month = calendar.monthrange(year, month)[1]
+        
+        first_day_weekday = (month_start_date.isoweekday()) % 7
+        num_weeks = (num_days_in_month + first_day_weekday + 6) // 7
+
+        svg_width = num_weeks * GRID_UNIT + LEFT_PADDING
+        svg_height = 7 * GRID_UNIT + TOP_PADDING
+
+        rects_html = []
+        
+        for day_index in range(num_days_in_month):
+            current_date = month_start_date + datetime.timedelta(days=day_index)
+            grid_day_index = day_index + first_day_weekday
+            week_x, day_y = grid_day_index // 7, grid_day_index % 7
+            x_pos = week_x * GRID_UNIT + LEFT_PADDING
+            y_pos = day_y * GRID_UNIT + TOP_PADDING
+            
+            hours = data.get(current_date, 0)
+            color = self._get_color_for_hours(hours)
+            
+            tooltip = f"{hours:.2f} 小时 {project_name} on {current_date.strftime('%Y-%m-%d')}"
+            rects_html.append(
+                f'    <rect width="{SQUARE_SIZE}" height="{SQUARE_SIZE}" x="{x_pos}" y="{y_pos}" '
+                f'fill="{color}" rx="{SQUARE_RADIUS}" ry="{SQUARE_RADIUS}">'
+                f'<title>{tooltip}</title></rect>'
+            )
+
+        day_labels_html = [
+            f'<text x="{LEFT_PADDING - 15}" y="{TOP_PADDING + GRID_UNIT * 1 + SQUARE_SIZE / 1.5}" class="day-label">M</text>',
+            f'<text x="{LEFT_PADDING - 15}" y="{TOP_PADDING + GRID_UNIT * 3 + SQUARE_SIZE / 1.5}" class="day-label">W</text>',
+            f'<text x="{LEFT_PADDING - 15}" y="{TOP_PADDING + GRID_UNIT * 5 + SQUARE_SIZE / 1.5}" class="day-label">F</text>'
+        ]
+        
+        return f"""
+        <div class="monthly-heatmap">
+            <h3>{month_start_date.strftime("%B")}</h3>
+            <svg width="{svg_width}" height="{svg_height}">
+                {"\n".join(day_labels_html)}
+                {"\n".join(rects_html)}
+            </svg>
+        </div>
+        """
 
     def generate_html(self, year: int, project_name: str, data: Dict[datetime.date, float]) -> str:
         """通过嵌入SVG生成热力图的完整HTML内容。"""
         print(f"🎨 [步骤 3/4] 正在为项目 '{project_name}' 生成SVG和HTML结构...")
         
-        svg_content = self._generate_svg_content(year, project_name, data)
+        annual_svg_content = self._generate_annual_svg_content(year, project_name, data)
+        
+        monthly_svgs_html = []
+        for month in range(1, 13):
+            monthly_svgs_html.append(self._generate_monthly_svg_content(year, month, project_name, data))
+        
+        monthly_heatmaps_content = "\n".join(monthly_svgs_html)
         display_project_name = project_name.capitalize()
         
         html_template = f"""
@@ -186,18 +243,28 @@ class HeatmapGenerator:
     <title>{display_project_name} 热力图 - {year}</title>
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background-color: #f6f8fa; color: #24292e; display: flex; justify-content: center; align-items: center; flex-direction: column; margin: 2em; }}
-        .heatmap-container {{ border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px; background-color: #ffffff; max-width: 100%; overflow-x: auto; }}
+        .heatmap-container {{ border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px; background-color: #ffffff; max-width: 100%; overflow-x: auto; margin-bottom: 2em; }}
+        .monthly-heatmaps-container {{ display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; max-width: 1000px; }}
+        .monthly-heatmap {{ border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; background-color: #ffffff; }}
         svg {{ display: block; margin: 0 auto; }}
-        .month, .day-label {{ font-size: 10px; fill: #586069; text-anchor: middle; }}
-        .day-label {{ text-anchor: end; }}
-        h1 {{ font-weight: 400; text-align: center; }}
+        .month, .day-label {{ font-size: 10px; fill: #586069; }}
+        .day-label {{ text-anchor: start; }}
+        h1, h2, h3 {{ font-weight: 400; text-align: center; }}
+        h1 {{ margin-bottom: 1em; }}
+        h2 {{ margin-top: 2em; margin-bottom: 1em; width: 100%; }}
+        h3 {{ margin-top: 0; margin-bottom: 10px; }}
         rect:hover {{ stroke: #24292e; stroke-width: 1px; }}
     </style>
 </head>
 <body>
-    <h1>{display_project_name} 热力图 - {year}</h1>
+    <h1>{display_project_name} 年度热力图 - {year}</h1>
     <div class="heatmap-container">
-        {svg_content}
+        {annual_svg_content}
+    </div>
+
+    <h2>每月详情</h2>
+    <div class="monthly-heatmaps-container">
+        {monthly_heatmaps_content}
     </div>
 </body>
 </html>"""
