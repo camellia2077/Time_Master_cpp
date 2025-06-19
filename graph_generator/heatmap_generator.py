@@ -1,4 +1,4 @@
-# heatmap_generator.py (Refactored)
+# heatmap_generator.py (Refactored and Modified)
 
 import argparse
 import datetime
@@ -14,7 +14,7 @@ from db_access import COLOR_GREEN, COLOR_RED, COLOR_RESET
 
 # --- Configuration ---
 # DB_PATH and other db-related configs are now managed in db_access.py
-COLOR_CONFIG_PATH = 'heatmap_colors_config.json'
+COLOR_CONFIG_PATH = 'heatmap_config.json'
 
 # The DataReader class has been removed and replaced by the db_access module.
 
@@ -22,7 +22,6 @@ class HeatmapGenerator:
     """
     根据提供的数据生成HTML和SVG格式的热力图。
     """
-    # This class remains unchanged.
     def __init__(self, color_config: Dict[str, Any]):
         self.color_palette = color_config.get('palette')
         self.over_12h_color = color_config.get('over_12h_color')
@@ -129,7 +128,6 @@ class HeatmapGenerator:
         """
 
     def generate_html(self, year: int, project_name: str, data: Dict[datetime.date, float]) -> str:
-        print(f"🎨 [步骤 2/3] 正在为项目 '{project_name}' 生成SVG和HTML结构...")
         annual_svg_content = self._generate_annual_svg_content(year, project_name, data)
         monthly_svgs_html = [self._generate_monthly_svg_content(year, m, project_name, data) for m in range(1, 13)]
         monthly_heatmaps_content = "\n".join(monthly_svgs_html)
@@ -162,21 +160,21 @@ class HeatmapGenerator:
     <div class="monthly-heatmaps-container">{monthly_heatmaps_content}</div>
 </body>
 </html>"""
-        print("✅ {COLOR_GREEN}[步骤 2/3] HTML生成完成。{COLOR_RESET}")
         return html_template
 
-def load_color_config(config_path: str) -> Dict[str, Any]:
-    print(f"🎨 [步骤 1/3] 正在从 '{config_path}' 加载颜色配置...")
+def load_config(config_path: str) -> Dict[str, Any]:
+    print(f"🎨 [步骤 1/3] 正在从 '{config_path}' 加载配置...")
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
     except FileNotFoundError:
-        print(f"{COLOR_RED}❌ 错误: 颜色配置文件 '{config_path}' 未找到。{COLOR_RESET}", file=sys.stderr)
+        print(f"{COLOR_RED}❌ 错误: 配置文件 '{config_path}' 未找到。{COLOR_RESET}", file=sys.stderr)
         sys.exit(1)
     except json.JSONDecodeError:
-        print(f"{COLOR_RED}❌ 错误: 颜色配置文件 '{config_path}' 格式无效。{COLOR_RESET}", file=sys.stderr)
+        print(f"{COLOR_RED}❌ 错误: 配置文件 '{config_path}' 格式无效。{COLOR_RESET}", file=sys.stderr)
         sys.exit(1)
     
+    # Load color configuration
     palette_name = config.get("DEFAULT_COLOR_PALETTE_NAME")
     color_palette = config.get("COLOR_PALETTES", {}).get(palette_name)
     over_12h_ref = config.get("OVER_12_HOURS_COLOR_REF")
@@ -186,49 +184,72 @@ def load_color_config(config_path: str) -> Dict[str, Any]:
         print(f"{COLOR_RED}❌ 错误: 颜色配置文件中的键缺失或无效。{COLOR_RESET}", file=sys.stderr)
         sys.exit(1)
         
-    print(f"{COLOR_GREEN}✅ [步骤 1/3] 颜色配置加载成功。{COLOR_RESET}")
-    return {"palette": color_palette, "over_12h_color": over_12h_color}
+    # Load project names, default to ["mystudy"]
+    project_names = config.get("PARENT_PROJECTS", ["mystudy"])
+    if not isinstance(project_names, list) or not all(isinstance(p, str) for p in project_names):
+        print(f"{COLOR_RED}❌ 错误: 'PARENT_PROJECTS' 在配置文件中必须是一个字符串列表。{COLOR_RESET}", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"{COLOR_GREEN}✅ [步骤 1/3] 配置加载成功。{COLOR_RESET}")
+    return {
+        "colors": {"palette": color_palette, "over_12h_color": over_12h_color},
+        "projects": project_names
+    }
 
 def write_html_to_file(filename: str, content: str):
-    print(f"📄 [步骤 3/3] 正在将HTML写入文件 '{filename}'...")
     try:
         with open(filename, "w", encoding="utf-8") as f:
             f.write(content)
-        print(f"✅ {COLOR_RED}[步骤 3/3] 文件写入完成。{COLOR_RESET}")
     except IOError as e:
         print(f"{COLOR_RED}❌ 写入文件 '{filename}' 时出错: {e}{COLOR_RESET}", file=sys.stderr)
         sys.exit(1)
 
 def main():
     parser = argparse.ArgumentParser(
-        description="从 time_data.db 数据库为指定项目生成一个GitHub风格的热力图。",
+        description="从 time_data.db 数据库为在配置文件中指定的项目生成GitHub风格的热力图。",
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument("year", type=int, help="要生成热力图的年份 (例如: 2024)。")
-    parser.add_argument("-p", "--project", type=str, default="study", help='要生成热力图的父项目 (例如 "code")。\n默认为 "study"。')
     args = parser.parse_args()
     year = args.year
-    project_name = args.project.lower()
 
     print("🚀 启动热力图生成器...")
     try:
-        # 1. 加载颜色配置
-        color_config = load_color_config(COLOR_CONFIG_PATH)
+        # 1. 加载配置 (颜色和项目)
+        config = load_config(COLOR_CONFIG_PATH)
+        color_config = config["colors"]
+        project_names = config["projects"]
         
-        # 2. 从数据库获取数据 (Now using the db_access module)
-        print(f"🔍 正在为项目 '{project_name}' 检索 {year} 年的数据...")
-        project_data = db_access.get_data_for_heatmap(year, project_name)
-        print("✅ 数据检索完成。")
-
-        # 3. 生成HTML内容
+        # 2. 初始化生成器
         generator = HeatmapGenerator(color_config)
-        html_content = generator.generate_html(year, project_name, project_data)
+        generated_files_count = 0
 
-        # 4. 写入文件
-        output_filename = f"heatmap_{project_name}_{year}.html"
-        write_html_to_file(output_filename, html_content)
+        # 3. 为每个项目生成热力图
+        for project_name in project_names:
+            project_name = project_name.lower()
+            print(f"\n▶️  正在处理项目: '{project_name.capitalize()}'")
+            
+            # a. 获取数据
+            print(f"  [1/3] 🔍 正在为项目 '{project_name}' 检索 {year} 年的数据...")
+            project_data = db_access.get_data_for_heatmap(year, project_name)
+            if not project_data:
+                print(f"  ⚠️  未找到项目 '{project_name}' 在 {year} 年的数据。跳过此项目。")
+                continue
+            print("  ✅ 数据检索完成。")
+
+            # b. 生成HTML
+            print(f"  [2/3] 🎨 正在为 '{project_name}' 生成HTML内容...")
+            html_content = generator.generate_html(year, project_name, project_data)
+            print(f"  ✅ HTML内容已为 '{project_name}' 生成。")
+
+            # c. 写入文件
+            output_filename = f"heatmap_{project_name}_{year}.html"
+            print(f"  [3/3] 📄 正在将HTML写入文件 '{output_filename}'...")
+            write_html_to_file(output_filename, html_content)
+            print(f"  ✅ 文件写入完成: {output_filename}")
+            generated_files_count += 1
         
-        print(f"\n🎉 全部完成！热力图已成功生成: {output_filename}")
+        print(f"\n🎉 全部完成！已成功为 {generated_files_count} 个项目生成热力图。")
 
     except Exception as e:
         print(f"\n{COLOR_RED}❌ 主进程中发生意外错误: {e}{COLOR_RESET}", file=sys.stderr)
