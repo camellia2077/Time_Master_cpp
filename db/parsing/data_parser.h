@@ -41,7 +41,7 @@ struct pair_hash {// 为 std::pair<std::string, std::string> 提供自定义哈�
 class DataFileParser {//负责解析输入文件并填充上述数据结构
 public:
     // --- Public Data Stores ---公共数据存储
-    // These are populated by the parser and then read by the importer.
+    // These are populated by the parser and then read by the inserter.
     std::vector<DayData> days;// 存储从文件中解析出的所有 DayData 对象
     std::vector<TimeRecordInternal> records;// 存储从文件中解析出的所有 TimeRecordInternal 对象。
     std::unordered_set<std::pair<std::string, std::string>, pair_hash> parent_child_pairs;//存储解析出的项目路径中的父子关系对（例如 {"study_math", "STUDY"}）。
