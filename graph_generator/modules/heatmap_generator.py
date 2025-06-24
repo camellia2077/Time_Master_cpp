@@ -2,9 +2,10 @@
 
 import datetime
 import json
+import calendar # 导入日历模块
 from typing import Dict, List, Any, Callable, Tuple
 
-# --- 策略接口和实现 ---
+# --- 策略接口和实现 (此部分代码保持不变) ---
 
 class HeatmapStrategy:
     """定义如何为热力图方块提供颜色和提示信息的策略接口。"""
@@ -88,81 +89,111 @@ def create_boolean_heatmap_strategy() -> HeatmapStrategy:
     return BooleanStrategy()
 
 
-# --- 通用热力图生成器 ---
+# --- 通用热力图生成器 (已修改) ---
 
 class HeatmapGenerator:
-    """一个通用的、用于生成年度热力图HTML文件的类。"""
-    SQUARE_SIZE, SQUARE_GAP = 12, 3
-    LEFT_PADDING, TOP_PADDING = 30, 30
+    """一个通用的、用于生成年度或月度热力图HTML文件的类。"""
+    # 全年视图的常量
+    ANNUAL_SQUARE_SIZE, ANNUAL_SQUARE_GAP = 12, 3
+    ANNUAL_LEFT_PADDING, ANNUAL_TOP_PADDING = 30, 30
+
+    # --- 新增：月度视图的常量 ---
+    MONTHLY_SQUARE_SIZE, MONTHLY_SQUARE_GAP = 15, 4
+    MONTHLY_LEFT_PADDING, MONTHLY_TOP_PADDING = 15, 40
+    MONTHLY_HEADER_HEIGHT = 30
 
     def __init__(self, year: int, data: Dict[datetime.date, Any], strategy: HeatmapStrategy):
         self.year = year
         self.data = data
         self.strategy = strategy
-        self.GRID_UNIT = self.SQUARE_SIZE + self.SQUARE_GAP
-        
+        self.cal = calendar.Calendar()
+
+    # --- 生成年度视图的私有方法 (逻辑不变) ---
+    def _generate_annual_svg_content(self) -> str:
+        GRID_UNIT = self.ANNUAL_SQUARE_SIZE + self.ANNUAL_SQUARE_GAP
         start_date = datetime.date(self.year, 1, 1)
         total_days = (datetime.date(self.year, 12, 31) - start_date).days + 1
         first_day_weekday = start_date.isoweekday() % 7
         num_weeks = (total_days + first_day_weekday + 6) // 7
-        self.svg_width = num_weeks * self.GRID_UNIT + self.LEFT_PADDING
-        self.svg_height = 7 * self.GRID_UNIT + self.TOP_PADDING
+        svg_width = num_weeks * GRID_UNIT + self.ANNUAL_LEFT_PADDING
+        svg_height = 7 * GRID_UNIT + self.ANNUAL_TOP_PADDING
 
-    def _generate_day_rects(self) -> List[str]:
-        rects_svg = []
-        start_date = datetime.date(self.year, 1, 1)
-        total_days = 366 if (self.year % 4 == 0 and self.year % 100 != 0) or (self.year % 400 == 0) else 365
-        first_day_weekday = start_date.isoweekday() % 7
-
+        rects_svg, month_labels_svg, day_labels_svg = [], [], []
+        last_month = -1
+        
+        # Day labels
+        for i, label in zip([1, 3, 5], ["Mon", "Wed", "Fri"]):
+             y_pos = self.ANNUAL_TOP_PADDING + GRID_UNIT * i + self.ANNUAL_SQUARE_SIZE / 1.5
+             day_labels_svg.append(f'<text x="{self.ANNUAL_LEFT_PADDING - 15}" y="{y_pos}" class="day-label">{label}</text>')
+        
+        # Day rects and month labels
         for day_index in range(total_days):
             current_date = start_date + datetime.timedelta(days=day_index)
             value = self.data.get(current_date)
-            
             grid_day_index = day_index + first_day_weekday
-            week_x = grid_day_index // 7
-            day_y = grid_day_index % 7
-            
-            x_pos = week_x * self.GRID_UNIT + self.LEFT_PADDING
-            y_pos = day_y * self.GRID_UNIT + self.TOP_PADDING
+            week_x, day_y = divmod(grid_day_index, 7)
+            x_pos = week_x * GRID_UNIT + self.ANNUAL_LEFT_PADDING
+            y_pos = day_y * GRID_UNIT + self.ANNUAL_TOP_PADDING
             
             color, tooltip = self.strategy.get_color_and_tooltip(current_date, value)
+            rects_svg.append(f'    <rect width="{self.ANNUAL_SQUARE_SIZE}" height="{self.ANNUAL_SQUARE_SIZE}" x="{x_pos}" y="{y_pos}" fill="{color}" rx="2" ry="2"><title>{tooltip}</title></rect>')
             
-            rects_svg.append(
-                f'    <rect width="{self.SQUARE_SIZE}" height="{self.SQUARE_SIZE}" x="{x_pos}" y="{y_pos}" '
-                f'fill="{color}" rx="2" ry="2"><title>{tooltip}</title></rect>'
-            )
-        return rects_svg
-
-    def _generate_month_labels(self) -> List[str]:
-        month_labels_svg, last_month = [], -1
-        start_date = datetime.date(self.year, 1, 1)
-        total_days = (datetime.date(self.year, 12, 31) - start_date).days + 1
-        first_day_weekday = start_date.isoweekday() % 7
-        for day_index in range(total_days):
-            current_date = start_date + datetime.timedelta(days=day_index)
             if current_date.month != last_month:
-                week_x = (day_index + first_day_weekday) // 7
-                x_pos = week_x * self.GRID_UNIT + self.LEFT_PADDING
-                month_labels_svg.append(f'  <text x="{x_pos}" y="{self.TOP_PADDING - 10}" class="month">{current_date.strftime("%b")}</text>')
+                month_labels_svg.append(f'  <text x="{x_pos}" y="{self.ANNUAL_TOP_PADDING - 10}" class="month">{current_date.strftime("%b")}</text>')
                 last_month = current_date.month
-        return month_labels_svg
 
-    def _generate_weekday_labels(self) -> List[str]:
-        return [
-            f'<text x="{self.LEFT_PADDING - 15}" y="{self.TOP_PADDING + self.GRID_UNIT * i + self.SQUARE_SIZE / 1.5}" class="day-label">{label}</text>'
-            for i, label in zip([1, 3, 5], ["Mon", "Wed", "Fri"])
-        ]
-
-    def generate_heatmap_html(self) -> str:
-        svg_content = f"""
-<svg width="{self.svg_width}" height="{self.svg_height}">
+        return f"""
+<svg width="{svg_width}" height="{svg_height}">
     <g>
-        {"\n".join(self._generate_month_labels())}
-        {"\n".join(self._generate_weekday_labels())}
-        {"\n".join(self._generate_day_rects())}
+        {"\n".join(month_labels_svg)}
+        {"\n".join(day_labels_svg)}
+        {"\n".join(rects_svg)}
     </g>
-</svg>
+</svg>"""
+
+    # --- 新增：生成单个SVG月度视图的方法 ---
+    def _generate_single_month_svg(self, month: int) -> str:
+        GRID_UNIT = self.MONTHLY_SQUARE_SIZE + self.MONTHLY_SQUARE_GAP
+        month_weeks = self.cal.monthdatescalendar(self.year, month)
+        
+        svg_width = 7 * GRID_UNIT + self.MONTHLY_LEFT_PADDING * 2
+        svg_height = len(month_weeks) * GRID_UNIT + self.MONTHLY_TOP_PADDING + self.MONTHLY_HEADER_HEIGHT
+
+        rects_svg, weekday_labels_svg = [], []
+        month_name = datetime.date(self.year, month, 1).strftime('%B')
+        
+        # Weekday labels (S, M, T, W, T, F, S)
+        for i, day_name in enumerate(["S", "M", "T", "W", "T", "F", "S"]):
+            x_pos = i * GRID_UNIT + self.MONTHLY_LEFT_PADDING + self.MONTHLY_SQUARE_SIZE / 2
+            weekday_labels_svg.append(f'<text x="{x_pos}" y="{self.MONTHLY_TOP_PADDING - 10}" class="day-label" text-anchor="middle">{day_name}</text>')
+
+        # Day rects
+        for week_index, week in enumerate(month_weeks):
+            for day_index, current_date in enumerate(week):
+                if current_date.month != month:
+                    continue # Skip days from other months
+                
+                value = self.data.get(current_date)
+                x_pos = day_index * GRID_UNIT + self.MONTHLY_LEFT_PADDING
+                y_pos = week_index * GRID_UNIT + self.MONTHLY_TOP_PADDING
+                
+                color, tooltip = self.strategy.get_color_and_tooltip(current_date, value)
+                rects_svg.append(f'    <rect width="{self.MONTHLY_SQUARE_SIZE}" height="{self.MONTHLY_SQUARE_SIZE}" x="{x_pos}" y="{y_pos}" fill="{color}" rx="3" ry="3"><title>{tooltip}</title></rect>')
+
+        return f"""
+<div class="month-container">
+    <h3 class="month-title">{month_name}</h3>
+    <svg width="{svg_width}" height="{svg_height}">
+        <g>
+            {"\n".join(weekday_labels_svg)}
+            {"\n".join(rects_svg)}
+        </g>
+    </svg>
+</div>
 """
+
+    def _generate_html_shell(self, content: str, custom_style: str = "") -> str:
+        """生成HTML页面的外壳"""
         return f"""
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -170,30 +201,58 @@ class HeatmapGenerator:
     <meta charset="UTF-8">
     <title>{self.strategy.get_title(self.year)}</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; flex-direction: column; align-items: center; margin: 2em; }}
-        .heatmap-container {{ border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px; background-color: #ffffff; }}
-        h1 {{ font-weight: 400; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; flex-direction: column; align-items: center; margin: 2em; background-color: #f6f8fa; }}
+        h1 {{ font-weight: 400; text-align: center; }}
         .month, .day-label {{ font-size: 10px; fill: #586069; }}
         rect:hover {{ stroke: #24292e; stroke-width: 1.5px; }}
         .legend {{ display: flex; justify-content: flex-end; align-items: center; gap: 5px; margin-top: 10px; font-size: 12px; }}
         .legend-box {{ width: 12px; height: 12px; border-radius: 2px; }}
+        {custom_style}
     </style>
 </head>
 <body>
     <h1>{self.strategy.get_title(self.year)}</h1>
-    <div class="heatmap-container">
-        {svg_content}
-        {self.strategy.get_legend()}
-    </div>
+    {content}
 </body>
 </html>
 """
 
-    def save_to_file(self, filename: str) -> None:
-        html_content = self.generate_heatmap_html()
+    def save_annual_heatmap(self, filename: str) -> None:
+        """生成并保存年度视图的热力图。"""
+        svg_content = self._generate_annual_svg_content()
+        container_html = f"""
+<div class="annual-container" style="border: 1px solid #e1e4e8; border-radius: 6px; padding: 20px; background-color: #ffffff;">
+    {svg_content}
+    {self.strategy.get_legend()}
+</div>"""
+        html_output = self._generate_html_shell(container_html)
         try:
             with open(filename, 'w', encoding='utf-8') as f:
-                f.write(html_content)
-            print(f"成功创建文件 '{filename}'.")
+                f.write(html_output)
+            print(f"成功创建年度热力图 '{filename}'.")
+        except IOError as e:
+            print(f"写入文件时出错: {e}")
+
+    def save_monthly_heatmap(self, filename: str) -> None:
+        """生成并保存包含12个月度视图的热力图。"""
+        all_months_svg = [self._generate_single_month_svg(m) for m in range(1, 13)]
+        
+        monthly_style = """
+        .months-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; width: 100%; max-width: 1200px; }
+        .month-container { border: 1px solid #e1e4e8; border-radius: 6px; padding: 15px; background-color: #ffffff; }
+        .month-title { text-align: center; margin-top: 0; margin-bottom: 15px; font-weight: 500; }
+        """
+        
+        container_html = f"""
+<div class="months-grid">
+    {''.join(all_months_svg)}
+</div>
+<div style="margin-top: 20px; width: 100%; max-width: 1200px;">{self.strategy.get_legend()}</div>
+"""
+        html_output = self._generate_html_shell(container_html, custom_style=monthly_style)
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(html_output)
+            print(f"成功创建月度热力图 '{filename}'.")
         except IOError as e:
             print(f"写入文件时出错: {e}")
