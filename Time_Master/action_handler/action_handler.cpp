@@ -1,10 +1,10 @@
-#include "ActionHandler.h"
+#include "action_handler.h"
 #include "query_handler.h"
 #include "processing.h"
 #include "FormatValidator.h"
 #include "IntervalProcessor.h"
 #include "common_utils.h"
-#include "FileHandler.h"
+#include "file_handler.h"
 
 #include <iostream>
 #include <sqlite3.h>
@@ -60,7 +60,7 @@ void ActionHandler::run_database_import(const std::string& processed_path_str) {
     std::cout << "Import process finished." << std::endl;
 }
 
-// --- 完整流水线逻辑实现 (已补充完整) ---
+// --- 完整流水线逻辑实现  ---
 void ActionHandler::run_full_pipeline_and_import(const std::string& source_path) {
     fs::path input_path(source_path);
     if (!fs::exists(input_path) || !fs::is_directory(input_path)) {
