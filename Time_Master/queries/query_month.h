@@ -4,6 +4,7 @@
 #include <sqlite3.h>
 #include <string>
 #include <vector>
+#include <sstream> // 新增
 #include "common_utils.h" // For ProjectTree etc.
 
 /**
@@ -17,15 +18,16 @@ public:
     // 构造函数，接收数据库连接和要查询的月份 (格式 YYYYMM)
     explicit MonthlyReportGenerator(sqlite3* db, const std::string& year_month);
 
-    // 生成并显示完整的月度报告
-    void generate_report();
+    // 生成并返回完整的月度报告字符串
+    std::string generate_report();
 
 private:
     // 私有辅助函数
     bool _validate_input() const;
     void _fetch_data();
-    void _display_summary();
-    void _display_project_breakdown();
+    // 修改为向 stringstream 写入数据
+    void _display_summary(std::stringstream& ss);
+    void _display_project_breakdown(std::stringstream& ss);
 
     // 成员变量
     sqlite3* m_db;

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <sstream> // 新增
 #include "common_utils.h" // For ProjectTree struct and time_format_duration function
 
 // 用于存储从 'days' 表中获取的元数据
@@ -25,16 +26,17 @@ public:
     // 构造函数，需要数据库连接和查询日期
     explicit DailyReportGenerator(sqlite3* db, const std::string& date);
 
-    // 生成并显示完整的每日报告
-    void generate_report();
+    // 生成每日报告并返回字符串
+    std::string generate_report();
 
 private:
     // 私有辅助函数，对应拆分后的各项功能
     void _fetch_metadata();
     void _fetch_total_duration();
     void _fetch_time_records();
-    void _display_header();
-    void _display_project_breakdown();
+    // 修改为向 stringstream 写入数据
+    void _display_header(std::stringstream& ss);
+    void _display_project_breakdown(std::stringstream& ss);
 
     // 成员变量，用于存储状态和数据
     sqlite3* m_db;

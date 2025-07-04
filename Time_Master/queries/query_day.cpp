@@ -1,31 +1,35 @@
 #include "query_day.h"
 #include "query_utils.h"
-#include <iostream>
 #include <iomanip>
 #include <algorithm>
+#include <sstream>
 
 // --- DailyReportGenerator Class Implementation ---
 
 DailyReportGenerator::DailyReportGenerator(sqlite3* db, const std::string& date)
     : m_db(db), m_date(date) {}
 
-void DailyReportGenerator::generate_report() {
+std::string DailyReportGenerator::generate_report() {
+    std::stringstream ss;
+
     // 1. 获取所有需要的数据
     _fetch_metadata();
     _fetch_total_duration();
 
-    // 2. 显示报告头部
-    _display_header();
+    // 2. 写入报告头部
+    _display_header(ss);
 
     // 3. 如果当天没有记录，则提前结束
     if (m_total_duration == 0) {
-        std::cout << "No time records for this day.\n";
-        return;
+        ss << "No time records for this day.\n";
+        return ss.str();
     }
 
-    // 4. 获取并显示项目分类详情
+    // 4. 获取并写入项目分类详情
     _fetch_time_records();
-    _display_project_breakdown();
+    _display_project_breakdown(ss);
+
+    return ss.str();
 }
 
 void DailyReportGenerator::_fetch_metadata() {
@@ -72,23 +76,21 @@ void DailyReportGenerator::_fetch_time_records() {
     sqlite3_finalize(stmt);
 }
 
-void DailyReportGenerator::_display_header() {
-    std::cout << "\n--- Daily Report for " << m_date << " ---\n";
-    std::cout << "Date: " << m_date << std::endl;
-    std::cout << "Total Time Recorded: " << time_format_duration(m_total_duration) << std::endl;// 调用 common_utils.h 中的 time_format_duration 函数，将总秒数格式化为 "XhYYm" 的可读形式。
-    std::cout << "Status: " << m_metadata.status << std::endl;
-    std::cout << "Getup Time: " << m_metadata.getup_time << std::endl;
-    std::cout << "Remark: " << m_metadata.remark << std::endl;
-    std::cout << "-------------------------------------\n";
+void DailyReportGenerator::_display_header(std::stringstream& ss) {
+    ss << "\n--- Daily Report for " << m_date << " ---\n";
+    ss << "Date: " << m_date << "\n";
+    ss << "Total Time Recorded: " << time_format_duration(m_total_duration) << "\n";
+    ss << "Status: " << m_metadata.status << "\n";
+    ss << "Getup Time: " << m_metadata.getup_time << "\n";
+    ss << "Remark: " << m_metadata.remark << "\n";
+    ss << "-------------------------------------\n";
 }
 
-void DailyReportGenerator::_display_project_breakdown() {
-    // 构建项目树
+void DailyReportGenerator::_display_project_breakdown(std::stringstream& ss) {
     ProjectTree project_tree;
     std::map<std::string, std::string> parent_map = get_parent_map(m_db);
     build_project_tree_from_records(project_tree, m_records, parent_map);
 
-    // 排序顶级分类
     std::vector<std::pair<std::string, ProjectNode>> sorted_top_level;
     for (const auto& pair : project_tree) {
         sorted_top_level.push_back(pair);
@@ -97,19 +99,18 @@ void DailyReportGenerator::_display_project_breakdown() {
         return a.second.duration > b.second.duration;
     });
 
-    // 显示每个分类的详情
     for (const auto& pair : sorted_top_level) {
         const std::string& category_name = pair.first;
         const ProjectNode& category_node = pair.second;
         double percentage = (static_cast<double>(category_node.duration) / m_total_duration * 100.0);
         
-        std::cout << "\n## " << category_name << ": "
-                  << time_format_duration(category_node.duration)// 再次调用 common_utils.h 中的 time_format_duration 函数，格式化每个分类的时长。
-                  << " (" << std::fixed << std::setprecision(1) << percentage << "%) ##\n";
+        ss << "\n## " << category_name << ": "
+           << time_format_duration(category_node.duration)
+           << " (" << std::fixed << std::setprecision(1) << percentage << "%) ##\n";
 
         std::vector<std::string> output_lines = generate_sorted_output(category_node, 1);
         for (const auto& line : output_lines) {
-            std::cout << line << std::endl;
+            ss << line << "\n";
         }
     }
 }

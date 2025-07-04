@@ -107,10 +107,23 @@ int main(int argc, char* argv[]) {
             if (args.size() < 4) throw std::runtime_error("Query command requires a sub-command and an argument.");
             const std::string sub_command = args[2];
             const std::string query_arg = args[3];
-            if (sub_command == "d" || sub_command == "daily") action_handler.run_daily_query(query_arg);
-            else if (sub_command == "p" || sub_command == "period") action_handler.run_period_query(std::stoi(query_arg));
-            else if (sub_command == "m" || sub_command == "monthly") action_handler.run_monthly_query(query_arg);
-            else throw std::runtime_error("Unknown query sub-command '" + sub_command + "'.");
+            
+            std::string report_content; // 用于接收报告字符串
+
+            if (sub_command == "d" || sub_command == "daily") {
+                report_content = action_handler.run_daily_query(query_arg);
+            } else if (sub_command == "p" || sub_command == "period") {
+                report_content = action_handler.run_period_query(std::stoi(query_arg));
+            } else if (sub_command == "m" || sub_command == "monthly") {
+                report_content = action_handler.run_monthly_query(query_arg);
+            } else {
+                throw std::runtime_error("Unknown query sub-command '" + sub_command + "'.");
+            }
+            
+            // 打印报告内容
+            if (!report_content.empty()) {
+                std::cout << report_content;
+            }
         }
         // Unknown command
         else {

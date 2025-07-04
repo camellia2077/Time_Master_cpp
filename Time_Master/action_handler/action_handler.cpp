@@ -25,23 +25,26 @@ ActionHandler::~ActionHandler() {
     close_database();
 }
 
-// --- 查询逻辑实现 ---
-void ActionHandler::run_daily_query(const std::string& date) {
-    if (!open_database_if_needed()) return;
-    QueryHandler(db_).run_daily_query(date);
+// --- 查询逻辑实现 (已修改) ---
+std::string ActionHandler::run_daily_query(const std::string& date) {
+    if (!open_database_if_needed()) return ""; // 返回空字符串表示失败
+    // 创建 QueryHandler 实例并返回其结果
+    return QueryHandler(db_).run_daily_query(date);
 }
 
-void ActionHandler::run_period_query(int days) {
-    if (!open_database_if_needed()) return;
-    QueryHandler(db_).run_period_query(days);
+std::string ActionHandler::run_period_query(int days) {
+    if (!open_database_if_needed()) return ""; // 返回空字符串表示失败
+    // 创建 QueryHandler 实例并返回其结果
+    return QueryHandler(db_).run_period_query(days);
 }
 
-void ActionHandler::run_monthly_query(const std::string& month) {
-    if (!open_database_if_needed()) return;
-    QueryHandler(db_).run_monthly_query(month);
+std::string ActionHandler::run_monthly_query(const std::string& month) {
+    if (!open_database_if_needed()) return ""; // 返回空字符串表示失败
+    // 创建 QueryHandler 实例并返回其结果
+    return QueryHandler(db_).run_monthly_query(month);
 }
 
-// --- 文件处理逻辑实现 ---
+// --- 文件处理逻辑实现 (无需修改) ---
 void ActionHandler::run_log_processing(const AppOptions& options) {
     close_database(); // 确保数据库已关闭，避免文件锁定
     LogProcessor processor(app_config_);
@@ -60,7 +63,7 @@ void ActionHandler::run_database_import(const std::string& processed_path_str) {
     std::cout << "Import process finished." << std::endl;
 }
 
-// --- 完整流水线逻辑实现  ---
+// --- 完整流水线逻辑实现 (无需修改) ---
 void ActionHandler::run_full_pipeline_and_import(const std::string& source_path) {
     fs::path input_path(source_path);
     if (!fs::exists(input_path) || !fs::is_directory(input_path)) {
@@ -104,7 +107,7 @@ void ActionHandler::run_full_pipeline_and_import(const std::string& source_path)
 }
 
 
-// --- 数据库连接管理 ---
+// --- 数据库连接管理 (无需修改) ---
 bool ActionHandler::open_database_if_needed() {
     if (db_ == nullptr) {
         if (sqlite3_open(db_name_.c_str(), &db_)) {

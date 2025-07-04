@@ -4,27 +4,30 @@
 #include <iomanip>
 #include <algorithm>
 #include <cctype>
+#include <sstream>
 
 // --- MonthlyReportGenerator Class Implementation ---
 
 MonthlyReportGenerator::MonthlyReportGenerator(sqlite3* db, const std::string& year_month)
     : m_db(db), m_year_month(year_month) {}
 
-void MonthlyReportGenerator::generate_report() {
+std::string MonthlyReportGenerator::generate_report() {
+    std::stringstream ss;
     if (!_validate_input()) {
-        std::cout << "Invalid year_month format. Expected YYYYMM.\n";
-        return;
+        ss << "Invalid year_month format. Expected YYYYMM.\n";
+        return ss.str();
     }
 
     _fetch_data();
-    _display_summary();
+    _display_summary(ss);
 
     if (m_actual_days == 0) {
-        std::cout << "No time records found for this month.\n";
-        return;
+        ss << "No time records found for this month.\n";
+        return ss.str();
     }
 
-    _display_project_breakdown();
+    _display_project_breakdown(ss);
+    return ss.str();
 }
 
 bool MonthlyReportGenerator::_validate_input() const {
@@ -59,19 +62,19 @@ void MonthlyReportGenerator::_fetch_data() {
     sqlite3_finalize(stmt);
 }
 
-void MonthlyReportGenerator::_display_summary() {
-    std::cout << "\n--- Monthly Summary for " << m_year_month.substr(0, 4) << "-" << m_year_month.substr(4, 2) << " ---\n";
+void MonthlyReportGenerator::_display_summary(std::stringstream& ss) {
+    ss << "\n--- Monthly Summary for " << m_year_month.substr(0, 4) << "-" << m_year_month.substr(4, 2) << " ---\n";
     if (m_actual_days > 0) {
-        std::cout << "Actual Days with Records: " << m_actual_days << std::endl;
-        std::cout << "Total Time Recorded: " << time_format_duration(m_total_duration, m_actual_days) << std::endl;
+        ss << "Actual Days with Records: " << m_actual_days << "\n";
+        ss << "Total Time Recorded: " << time_format_duration(m_total_duration, m_actual_days) << "\n";
     }
-    std::cout << "-------------------------------------\n";
+    ss << "-------------------------------------\n";
 }
 
-void MonthlyReportGenerator::_display_project_breakdown() {
+void MonthlyReportGenerator::_display_project_breakdown(std::stringstream& ss) {
     ProjectTree project_tree;
     std::map<std::string, std::string> parent_map = get_parent_map(m_db);
-    build_project_tree_from_records(project_tree, m_records, parent_map);// Calls build_project_tree_from_records from common_utils.h
+    build_project_tree_from_records(project_tree, m_records, parent_map);
 
     std::vector<std::pair<std::string, ProjectNode>> sorted_top_level;
     for (const auto& pair : project_tree) {
@@ -86,13 +89,13 @@ void MonthlyReportGenerator::_display_project_breakdown() {
         const ProjectNode& category_node = pair.second;
         double percentage = (m_total_duration > 0) ? (static_cast<double>(category_node.duration) / m_total_duration * 100.0) : 0.0;
 
-        std::cout << "\n## " << category_name << ": "
-                  << time_format_duration(category_node.duration, m_actual_days)
-                  << " (" << std::fixed << std::setprecision(1) << percentage << "% of total month) ##\n";
+        ss << "\n## " << category_name << ": "
+           << time_format_duration(category_node.duration, m_actual_days)
+           << " (" << std::fixed << std::setprecision(1) << percentage << "% of total month) ##\n";
 
-        std::vector<std::string> output_lines = generate_sorted_output(category_node, m_actual_days);// Calls generate_sorted_output from common_utils.h
+        std::vector<std::string> output_lines = generate_sorted_output(category_node, m_actual_days);
         for (const auto& line : output_lines) {
-            std::cout << line << std::endl;
+            ss << line << "\n";
         }
     }
 }

@@ -1,5 +1,5 @@
 #include "Menu.h"
-#include "ActionHandler.h" // 包含新的核心控制器
+#include "action_handler.h" // 包含新的核心控制器
 #include "version.h"
 #include "common_utils.h"
 
@@ -64,22 +64,64 @@ void Menu::print_menu() {
 }
 
 bool Menu::handle_user_choice(int choice) {
+    std::string report_content; // 用于接收报告字符串
+
     switch (choice) {
-        case 0: run_log_processor_submenu(); break;
-        case 1: action_handler_->run_daily_query(get_valid_date_input()); break;
-        case 2: action_handler_->run_period_query(7); break;
-        case 3: action_handler_->run_period_query(14); break;
-        case 4: action_handler_->run_period_query(30); break;
-        case 5: run_full_pipeline_and_import_prompt(); break;
-        case 6: std::cout << "\nFeature 'Generate study heatmap for a year' is not yet implemented." << std::endl; break;
-        case 7: action_handler_->run_monthly_query(get_valid_month_input()); break;
-        case 8: std::cout << "TimeMaster Version: " << AppInfo::VERSION << " (Last Updated: " << AppInfo::LAST_UPDATED << ")" << std::endl; break;
-        case 9: std::cout << "Exiting program." << std::endl; return false;
-        default: std::cout << YELLOW_COLOR << "Invalid choice. Please try again." << RESET_COLOR << std::endl; break;
+        case 0: 
+            run_log_processor_submenu(); 
+            break;
+        case 1: 
+            // 接收返回的字符串并打印
+            report_content = action_handler_->run_daily_query(get_valid_date_input()); 
+            std::cout << report_content;
+            break;
+        case 2: 
+            // 接收返回的字符串并打印
+            report_content = action_handler_->run_period_query(7); 
+            std::cout << report_content;
+            break;
+        case 3: 
+            // 接收返回的字符串并打印
+            report_content = action_handler_->run_period_query(14); 
+            std::cout << report_content;
+            break;
+        case 4: 
+            // 接收返回的字符串并打印
+            report_content = action_handler_->run_period_query(30); 
+            std::cout << report_content;
+            break;
+        case 5: 
+            run_full_pipeline_and_import_prompt(); 
+            break;
+        case 6: 
+            std::cout << "\nFeature 'Generate study heatmap for a year' is not yet implemented." << std::endl; 
+            break;
+        case 7: 
+            // 接收返回的字符串并打印
+            report_content = action_handler_->run_monthly_query(get_valid_month_input()); 
+            std::cout << report_content;
+            break;
+        case 8: 
+            std::cout << "TimeMaster Version: " << AppInfo::VERSION << " (Last Updated: " << AppInfo::LAST_UPDATED << ")" << std::endl; 
+            break;
+        case 9: 
+            std::cout << "Exiting program." << std::endl; 
+            return false;
+        default: 
+            std::cout << YELLOW_COLOR << "Invalid choice. Please try again." << RESET_COLOR << std::endl; 
+            break;
     }
-    // 添加一个暂停，以便用户可以看到操作结果
-    std::cout << "\nPress Enter to continue...";
-    std::cin.get();
+    
+    // 如果是查询操作，报告内容已经打印，这里不再需要额外的暂停提示
+    if ((choice >= 1 && choice <= 4) || (choice == 7)) {
+        // 可以选择在这里不加暂停，让用户直接看到下一个菜单
+    } else {
+        // 对于非查询操作，保留暂停
+        std::cout << "\nPress Enter to continue...";
+        // 清理可能存在的输入缓冲区问题
+        std::cin.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
+    }
+    
     return true;
 }
 

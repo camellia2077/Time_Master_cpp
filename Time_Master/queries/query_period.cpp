@@ -3,16 +3,18 @@
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
+#include <sstream>
 
 // --- PeriodReportGenerator Class Implementation ---
 
 PeriodReportGenerator::PeriodReportGenerator(sqlite3* db, int days_to_query)
     : m_db(db), m_days_to_query(days_to_query) {}
 
-void PeriodReportGenerator::generate_report() {
+std::string PeriodReportGenerator::generate_report() {
+    std::stringstream ss;
     if (!_validate_input()) {
-        std::cout << "Number of days to query must be positive.\n";
-        return;
+        ss << "Number of days to query must be positive.\n";
+        return ss.str();
     }
 
     // 计算日期范围
@@ -20,14 +22,15 @@ void PeriodReportGenerator::generate_report() {
     m_start_date = add_days_to_date_str(m_end_date, -(m_days_to_query - 1));
 
     _fetch_data();
-    _display_summary();
+    _display_summary(ss);
 
     if (m_actual_days == 0) {
-        std::cout << "No time records found in this period.\n";
-        return;
+        ss << "No time records found in this period.\n";
+        return ss.str();
     }
 
-    _display_project_breakdown();
+    _display_project_breakdown(ss);
+    return ss.str();
 }
 
 bool PeriodReportGenerator::_validate_input() const {
@@ -64,20 +67,20 @@ void PeriodReportGenerator::_fetch_data() {
     sqlite3_finalize(stmt);
 }
 
-void PeriodReportGenerator::_display_summary() {
-    std::cout << "\n--- Period Report: Last " << m_days_to_query << " days ("
-              << m_start_date << " to " << m_end_date << ") ---\n";
+void PeriodReportGenerator::_display_summary(std::stringstream& ss) {
+    ss << "\n--- Period Report: Last " << m_days_to_query << " days ("
+       << m_start_date << " to " << m_end_date << ") ---\n";
     if (m_actual_days > 0) {
-        std::cout << "Total Time Recorded: " << time_format_duration(m_total_duration, m_actual_days) << std::endl;
-        std::cout << "Actual Days with Records: " << m_actual_days << std::endl;
+        ss << "Total Time Recorded: " << time_format_duration(m_total_duration, m_actual_days) << "\n";
+        ss << "Actual Days with Records: " << m_actual_days << "\n";
     }
-    std::cout << "-------------------------------------\n";
+    ss << "-------------------------------------\n";
 }
 
-void PeriodReportGenerator::_display_project_breakdown() {
+void PeriodReportGenerator::_display_project_breakdown(std::stringstream& ss) {
     ProjectTree project_tree;
     std::map<std::string, std::string> parent_map = get_parent_map(m_db);
-    build_project_tree_from_records(project_tree, m_records, parent_map);// Calls build_project_tree_from_records from common_utils.h
+    build_project_tree_from_records(project_tree, m_records, parent_map);
 
     std::vector<std::pair<std::string, ProjectNode>> sorted_top_level;
     for (const auto& pair : project_tree) {
@@ -92,13 +95,13 @@ void PeriodReportGenerator::_display_project_breakdown() {
         const ProjectNode& category_node = pair.second;
         double percentage = (m_total_duration > 0) ? (static_cast<double>(category_node.duration) / m_total_duration * 100.0) : 0.0;
 
-        std::cout << "\n## " << category_name << ": "
-                  << time_format_duration(category_node.duration, m_actual_days)
-                  << " (" << std::fixed << std::setprecision(1) << percentage << "% of total period) ##\n";
+        ss << "\n## " << category_name << ": "
+           << time_format_duration(category_node.duration, m_actual_days)
+           << " (" << std::fixed << std::setprecision(1) << percentage << "% of total period) ##\n";
 
-        std::vector<std::string> output_lines = generate_sorted_output(category_node, m_actual_days);// Calls generate_sorted_output from common_utils.h
+        std::vector<std::string> output_lines = generate_sorted_output(category_node, m_actual_days);
         for (const auto& line : output_lines) {
-            std::cout << line << std::endl;
+            ss << line << "\n";
         }
     }
 }
