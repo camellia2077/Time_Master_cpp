@@ -53,7 +53,7 @@ Time_Master/
 │   ├── file_handler.cpp
 │   └── file_handler.h
 │
-├── ui/                
+├── ui/ #封装main.cpp的逻辑        
 │   ├── menu.h           
 │   └── menu.cpp         
 │
@@ -61,19 +61,22 @@ Time_Master/
 │   ├── processing.cpp          # Implements file collection, parsing, and database import.
 │   └── processing.h            # Declares the main function to start file processing.
 │
-├── queries/             # Contains all logic for querying the database and generating user-facing reports.
-│   ├──report_generators
-│   │   ├── query_day.cpp        # Implements the logic to generate a detailed report for a single day.
-│   │   └── query_day.h          # Declares the class responsible for generating a daily report.
-│   │   ├── query_month.cpp      # Implements the logic to generate a summary report for a specific month.
-│   │   └── query_month.h        # Declares the class that generates a monthly report.
-│   │   ├── query_period.cpp     # Implements the logic for generating reports over a custom period.
-│   │   └── query_period.h       # Declares the class for generating reports over a specific time period.
-│   │ 
-│   ├── query_handler.cpp    # Implements the QueryHandler class, which acts as a simple interface (Facade) to 
-│   └── query_handler.h      # Declares the QueryHandler class, the main entry point for all query operations.
-│   ├── query_utils.cpp      # Implements shared helper functions for querying.
-│   └── query_utils.h        # Declares various utility functions used by the different query generators.
+├── queries/ # 查询模块
+│   │          
+│   ├── report_generators/  # 存放所有具体的报告生成器。每个报告类型都拆分为独立的“查询器”和“格式化器”类。
+│   │   ├── daily_report_querier.cpp    # 实现单日报告的查询与格式化逻辑。
+│   │   ├── daily_report_querier.h      # 声明用于生成单日报告的 Querier 和 Formatter(格式化输出) 类。
+│   │   ├── monthly_report_querier.cpp  # 实现月度报告的查询与格式化逻辑。
+│   │   ├── monthly_report_querier.h    # 声明用于生成月度报告的 Querier 和 Formatter 类。
+│   │   ├── period_report_querier.cpp   # 实现周期报告的查询与格式化逻辑。
+│   │   ├── period_report_querier.h     # 声明用于生成周期报告的 Querier 和 Formatter 类。
+│   │   └── query_data_structs.h        # 定义用于在“查询器”和“格式化器”之间传递数据的所有报告数据结构。
+│   │
+│   ├── query_handler.cpp     # 实现 QueryHandler 类，负责将外部请求委托给相应的报告生成器。
+│   ├── query_handler.h       # 声明 QueryHandler 类，作为所有查询功能的统一入口（外观模式）。
+│   │
+│   ├── query_utils.cpp       # 实现被多个查询模块共享的辅助函数。
+│   └── query_utils.h         # 声明共享的查询辅助函数（如日期计算、项目树格式化等）      
 │
 └── resources/
     ├── app_icon.rc
