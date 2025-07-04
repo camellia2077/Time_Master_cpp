@@ -26,6 +26,7 @@ find_package(nlohmann_json REQUIRED)
 file(GLOB COMMON_SOURCES "common/*.cpp")
 file(GLOB DB_INSERTER_SOURCES "db_inserter/*.cpp")
 file(GLOB QUERIES_SOURCES "queries/*.cpp")
+file(GLOB REPORT_GENERATOR_SOURCES "queries/report_generators/*.cpp")
 file(GLOB UI_SOURCES "ui/*.cpp")
 file(GLOB PROCESSING_SOURCES "processing/*.cpp")
 file(GLOB REPROCESSING_SOURCES "reprocessing/*.cpp")
@@ -41,11 +42,13 @@ add_executable(
     ${COMMON_SOURCES}
     ${DB_INSERTER_SOURCES}
     ${QUERIES_SOURCES}
+    ${REPORT_GENERATOR_SOURCES}
     ${UI_SOURCES}
     ${PROCESSING_SOURCES}
     ${REPROCESSING_SOURCES}
     ${FILE_HANDLER_SOURCES}
     ${ACTION_HANDLER_SOURCES}
+
 
 )
 
@@ -56,6 +59,7 @@ add_executable(
     ${COMMON_SOURCES}
     ${DB_INSERTER_SOURCES} 
     ${QUERIES_SOURCES}
+    ${REPORT_GENERATOR_SOURCES}
     ${UI_SOURCES}
     ${PROCESSING_SOURCES} 
     ${REPROCESSING_SOURCES}

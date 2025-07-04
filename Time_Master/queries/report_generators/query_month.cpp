@@ -72,30 +72,6 @@ void MonthlyReportGenerator::_display_summary(std::stringstream& ss) {
 }
 
 void MonthlyReportGenerator::_display_project_breakdown(std::stringstream& ss) {
-    ProjectTree project_tree;
-    std::map<std::string, std::string> parent_map = get_parent_map(m_db);
-    build_project_tree_from_records(project_tree, m_records, parent_map);
-
-    std::vector<std::pair<std::string, ProjectNode>> sorted_top_level;
-    for (const auto& pair : project_tree) {
-        sorted_top_level.push_back(pair);
-    }
-    std::sort(sorted_top_level.begin(), sorted_top_level.end(), [](const auto& a, const auto& b) {
-        return a.second.duration > b.second.duration;
-    });
-
-    for (const auto& pair : sorted_top_level) {
-        const std::string& category_name = pair.first;
-        const ProjectNode& category_node = pair.second;
-        double percentage = (m_total_duration > 0) ? (static_cast<double>(category_node.duration) / m_total_duration * 100.0) : 0.0;
-
-        ss << "\n## " << category_name << ": "
-           << time_format_duration(category_node.duration, m_actual_days)
-           << " (" << std::fixed << std::setprecision(1) << percentage << "% of total month) ##\n";
-
-        std::vector<std::string> output_lines = generate_sorted_output(category_node, m_actual_days);
-        for (const auto& line : output_lines) {
-            ss << line << "\n";
-        }
-    }
+    // 调用公共函数，并将平均天数设置为当月有记录的实际天数
+    write_project_breakdown_to_stream(ss, m_db, m_records, m_total_duration, m_actual_days);
 }

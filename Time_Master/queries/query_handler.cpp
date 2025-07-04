@@ -1,9 +1,9 @@
 #include "query_handler.h"
 
 // 引入所有具体的报告生成器类
-#include "query_day.h"
-#include "query_period.h"
-#include "query_month.h"
+#include "report_generators/query_day.h"
+#include "report_generators/query_period.h"
+#include "report_generators/query_month.h"
 
 QueryHandler::QueryHandler(sqlite3* db) : m_db(db) {}
 
