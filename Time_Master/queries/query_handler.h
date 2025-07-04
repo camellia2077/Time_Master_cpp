@@ -4,6 +4,7 @@
 #include <sqlite3.h>
 #include <string>
 
+
 /**
  * @class QueryHandler
  * @brief 所有查询功能的统一入口（外观类）。定义了我们统一的查询接口
