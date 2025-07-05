@@ -10,14 +10,21 @@
 
 #include "common_utils.h"
 #include "version.h"
-#include "file_handler.h"
+
+#include "file_controller.h" 
 #include "action_handler.h"
+#include "query_handler.h"
+#include "LogProcessor.h"
 
 // --- Global Constants ---
 const std::string DATABASE_NAME = "time_data.db";
 
 // --- Function Declarations ---
 void print_full_usage(const char* app_name);
+// 【修改 1/3】：在这里添加缺失的函数声明
+bool open_database(sqlite3** db, const std::string& db_name);
+void close_database(sqlite3** db);
+
 
 int main(int argc, char* argv[]) {
     // --- Console Setup (Windows Only) ---
@@ -52,23 +59,21 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // --- Unified Initialization ---
-    AppConfig config;
-    std::string main_config_path_str;
+    // --- 主逻辑块，包含初始化和命令分派 ---
     try {
-        FileHandler file_handler(argv[0]);
-        config = file_handler.load_configuration();
-        main_config_path_str = file_handler.get_main_config_path();
-    } catch (const std::exception& e) {
-        std::cerr << RED_COLOR << "Fatal Error: " << RESET_COLOR << e.what() << std::endl;
-        return 1;
-    }
+        // --- Unified Initialization using FileController ---
+        // 1. 创建 FileController。它封装了所有配置加载的复杂性。
+        //    如果加载失败，其构造函数会抛出异常，被外层 try-catch 捕获。
+        FileController file_controller(argv[0]);
 
-    // Create the core controller
-    ActionHandler action_handler(DATABASE_NAME, config, main_config_path_str);
-
-    // --- Delegate all branches to ActionHandler ---
-    try {
+        // 2. 创建 ActionHandler，并直接从 FileController 获取所需的数据。
+        //    这使得 main 函数不需要管理 AppConfig 或路径字符串变量。
+        ActionHandler action_handler(
+            DATABASE_NAME,
+            file_controller.get_config(),          // 从控制器获取配置
+            file_controller.get_main_config_path() // 从控制器获取主配置路径
+        );
+        
         // Branch 1: Full Pipeline (-a, --all)
         if (command == "-a" || command == "--all") {
             if (args.size() != 3) {
@@ -104,13 +109,44 @@ int main(int argc, char* argv[]) {
         }
         // Branch 4: Query (-q)
         else if (command == "-q" || command == "--query") {
-            if (args.size() < 4) throw std::runtime_error("Query command requires a sub-command and an argument.");
-            const std::string sub_command = args[2];
-            const std::string query_arg = args[3];
-            if (sub_command == "d" || sub_command == "daily") action_handler.run_daily_query(query_arg);
-            else if (sub_command == "p" || sub_command == "period") action_handler.run_period_query(std::stoi(query_arg));
-            else if (sub_command == "m" || sub_command == "monthly") action_handler.run_monthly_query(query_arg);
-            else throw std::runtime_error("Unknown query sub-command '" + sub_command + "'.");
+            if (args.size() < 4) {
+                std::cerr << RED_COLOR << "Error: " << RESET_COLOR << " query command requires a sub-command and argument (e.g., -q d 20240101).\n";
+                print_full_usage(args[0].c_str());
+                return 1;
+            }
+            sqlite3* db = nullptr;
+            if (!open_database(&db, DATABASE_NAME)) return 1;
+            
+            // 【修改 2/3】：将 QueryHandler 的创建和调用包裹在 try-catch-finally 结构中，确保数据库总是能被关闭
+            try {
+                QueryHandler query_handler(db);
+                std::string sub_command = args[2];
+                std::string query_arg = args[3];
+                if (sub_command == "d" || sub_command == "daily") {
+                    std::cout << query_handler.run_daily_query(query_arg); // 注意：这里改为输出报告
+                } else if (sub_command == "p" || sub_command == "period") {
+                    try { 
+                        std::cout << query_handler.run_period_query(std::stoi(query_arg)); // 注意：这里改为输出报告
+                    }
+                    catch (const std::exception&) { 
+                        std::cerr  << RED_COLOR << "Error: " << RESET_COLOR << "<days> argument must be a valid number.\n"; 
+                        close_database(&db); 
+                        return 1; 
+                    }
+                } else if (sub_command == "m" || sub_command == "monthly") {
+                    std::cout << query_handler.run_monthly_query(query_arg); // 注意：这里改为输出报告
+                } else {
+                    std::cerr << RED_COLOR << "Error: " << RESET_COLOR << "Unknown query sub-command '" << sub_command << "'.\n";
+                    print_full_usage(args[0].c_str()); 
+                    close_database(&db); 
+                    return 1;
+                }
+            } catch(...) {
+                close_database(&db);
+                throw; // 重新抛出异常
+            }
+            
+            close_database(&db);
         }
         // Unknown command
         else {
@@ -118,7 +154,10 @@ int main(int argc, char* argv[]) {
         }
     } catch (const std::exception& e) {
         std::cerr << RED_COLOR << "Error: " << RESET_COLOR << e.what() << std::endl;
-        print_full_usage(args[0].c_str());
+        // 仅在命令未知或参数错误时打印完整用法
+        if (std::string(e.what()).find("command") != std::string::npos) {
+             print_full_usage(args[0].c_str());
+        }
         return 1;
     }
 
@@ -126,6 +165,7 @@ int main(int argc, char* argv[]) {
 }
 
 void print_full_usage(const char* app_name) {
+    // ... (此函数内容保持不变) ...
     std::cout << "TimeMaster: A command-line tool for time data pre-processing, import, and querying.\n\n";
     std::cout << "Usage: " << app_name << " <command> [arguments...]\n\n";
     std::cout << GREEN_COLOR << "--- Full Pipeline ---\n" << RESET_COLOR;
@@ -151,4 +191,20 @@ void print_full_usage(const char* app_name) {
     std::cout << GREEN_COLOR << "--- Other Options ---\n" << RESET_COLOR;
     std::cout << "  -h, --help\t\t\tShow this help message.\n";
     std::cout << "  -v, --version\t\t\tShow program version.\n";
+}
+
+bool open_database(sqlite3** db, const std::string& db_name) {
+    if (sqlite3_open(db_name.c_str(), db)) {
+        std::cerr  << RED_COLOR << "Error: " << RESET_COLOR << " Cannot open database: " << sqlite3_errmsg(*db) << std::endl;
+        return false;
+    }
+    return true;
+}
+
+// 【修改 3/3】：在文件末尾添加 close_database 函数的完整实现
+void close_database(sqlite3** db) {
+    if (db && *db) {
+        sqlite3_close(*db);
+        *db = nullptr; // 将指针设为 nullptr，防止悬挂指针和重复释放
+    }
 }
