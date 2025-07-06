@@ -11,7 +11,7 @@
 #include "common_utils.h"
 #include "version.h"
 
-#include "file_controller.h" 
+#include "FileController.h" 
 #include "ActionHandler.h "
 #include "QueryHandler.h"
 #include "LogProcessor.h"
@@ -59,14 +59,14 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    // --- 主逻辑块，包含初始化和命令分派 ---
+    // --- 主逻辑块,包含初始化和命令分派 ---
     try {
         // --- Unified Initialization using FileController ---
         // 1. 创建 FileController。它封装了所有配置加载的复杂性。
-        //    如果加载失败，其构造函数会抛出异常，被外层 try-catch 捕获。
+        //    如果加载失败,其构造函数会抛出异常,被外层 try-catch 捕获。
         FileController file_controller(argv[0]);
 
-        // 2. 创建 ActionHandler，并直接从 FileController 获取所需的数据。
+        // 2. 创建 ActionHandler,并直接从 FileController 获取所需的数据。
         //    这使得 main 函数不需要管理 AppConfig 或路径字符串变量。
         ActionHandler action_handler(
             DATABASE_NAME,
@@ -105,6 +105,26 @@ int main(int argc, char* argv[]) {
         // Branch 3: Database import (-p, --process)
         else if (command == "-p" || command == "--process") {
             if (args.size() != 3) throw std::runtime_error("Command '" + command + "' requires exactly one directory path.");
+            
+            // --- 打印警告并请求用户确认插入数据库 ---
+            std::cout << YELLOW_COLOR << "Warning:\n" << RESET_COLOR;
+            std::cout << "此 -p 命令设计用于导入[预处理&&转换]】的日志文件。\n";
+            std::cout << "直接导入[原始]日志文件将导致数据不正确地插入数据库,会导致这部分的查询 (-q) 功能失败。\n";
+            std::cout << "请确保指定的路径仅包含转换后的文件。\n\n";
+            std::cout << "您确定要继续吗？(y/n): ";
+
+            char confirmation;
+            std::cin >> confirmation;
+
+            // 如果用户输入的不是 'y' 或 'Y',则取消操作并退出程序
+            if (confirmation != 'y' && confirmation != 'Y') {
+                std::cout << RED_COLOR << "\n操作已取消。" << RESET_COLOR << std::endl;
+                return 0; // 安全退出
+            }
+            
+            std::cout << std::endl; // 在确认后添加一个换行符,使输出更美观
+            // --- 新增功能结束 ---
+
             action_handler.run_database_import(args[2]);
         }
         // Branch 4: Query (-q)
@@ -191,10 +211,9 @@ bool open_database(sqlite3** db, const std::string& db_name) {
     return true;
 }
 
-// 【修改 3/3】：在文件末尾添加 close_database 函数的完整实现
 void close_database(sqlite3** db) {
     if (db && *db) {
         sqlite3_close(*db);
-        *db = nullptr; // 将指针设为 nullptr，防止悬挂指针和重复释放
+        *db = nullptr; 
     }
 }
