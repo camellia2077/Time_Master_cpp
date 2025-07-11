@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <stdexcept>
+#include <print>
 
 // --- Windows-specific include for console functions ---
 #if defined(_WIN32) || defined(_WIN64)
@@ -54,8 +55,8 @@ int main(int argc, char* argv[]) {
         return 0;
     }
     if (command == "--version" || command == "-v") {
-        std::cout << "TimeMaster Command Version: " << AppInfo::VERSION << std::endl;
-        std::cout << "Last Updated: " << AppInfo::LAST_UPDATED << std::endl;
+        std::println("TimeMaster Command Version: {}",AppInfo::VERSION);
+        std::println("Last Updated:  {}",AppInfo::LAST_UPDATED);
         return 0;
     }
 
@@ -108,9 +109,9 @@ int main(int argc, char* argv[]) {
             
             // --- 打印警告并请求用户确认插入数据库 ---
             std::cout << YELLOW_COLOR << "Warning:\n" << RESET_COLOR;
-            std::cout << "此 -p 命令设计用于导入[预处理&&转换]】的日志文件。\n";
-            std::cout << "直接导入[原始]日志文件将导致数据不正确地插入数据库,会导致这部分的查询 (-q) 功能失败。\n";
-            std::cout << "请确保指定的路径仅包含转换后的文件。\n\n";
+            std::cout << "此 -p 命令设计用于导入,已经完成预处理(-vs -c -vo)的日志文件。\n";
+            std::cout << "直接导入[原始]，或没有经过验证日志文件，将导致数据不正确地插入数据库,会导致这部分的查询 (-q) 功能失败。\n";
+            std::cout << "请确保指定的路径仅包含转换后的文件，已经完成预处理(-vs -c -vo)。\n\n";
             std::cout << "您确定要继续吗？(y/n): ";
 
             char confirmation;
@@ -211,9 +212,10 @@ bool open_database(sqlite3** db, const std::string& db_name) {
     return true;
 }
 
+// 【修改 3/3】：在文件末尾添加 close_database 函数的完整实现
 void close_database(sqlite3** db) {
     if (db && *db) {
         sqlite3_close(*db);
-        *db = nullptr; 
+        *db = nullptr; // 将指针设为 nullptr,防止悬挂指针和重复释放
     }
 }
