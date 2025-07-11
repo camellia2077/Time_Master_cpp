@@ -22,7 +22,6 @@ const std::string DATABASE_NAME = "time_data.db";
 
 // --- Function Declarations ---
 void print_full_usage(const char* app_name);
-// 【修改 1/3】：在这里添加缺失的函数声明
 bool open_database(sqlite3** db, const std::string& db_name);
 void close_database(sqlite3** db);
 
@@ -176,7 +175,6 @@ int main(int argc, char* argv[]) {
 }
 
 void print_full_usage(const char* app_name) {
-    // ... (此函数内容保持不变) ...
     std::cout << "TimeMaster: A command-line tool for time data pre-processing, import, and querying.\n\n";
     std::cout << "Usage: " << app_name << " <command> [arguments...]\n\n";
     std::cout << GREEN_COLOR << "--- Full Pipeline ---\n" << RESET_COLOR;
@@ -212,7 +210,7 @@ bool open_database(sqlite3** db, const std::string& db_name) {
     return true;
 }
 
-// 【修改 3/3】：在文件末尾添加 close_database 函数的完整实现
+// 在文件末尾添加 close_database 函数的完整实现
 void close_database(sqlite3** db) {
     if (db && *db) {
         sqlite3_close(*db);
