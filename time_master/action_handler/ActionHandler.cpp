@@ -6,6 +6,8 @@
 
 #include "LogProcessor.h" // 包含格式验证和格式转换
 
+#include "FileUtils.h" // 递归查找文件
+
 #include <iostream>
 #include <sqlite3.h>
 #include <filesystem>
@@ -119,17 +121,16 @@ bool ActionHandler::collectFiles(const std::string& input_path) {
     files_to_process_.clear(); // 清空旧数据
     source_to_output_map_.clear(); // 清空旧数据
 
-    if (fs::is_directory(input_root_)) {
-        for (const auto& entry : fs::recursive_directory_iterator(input_root_)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".txt") {
-                files_to_process_.push_back(entry.path());
-            }
+    // 直接调用 FileUtils 来完成文件查找和排序
+    files_to_process_ = FileUtils::find_files_by_extension_recursively(input_root_, ".txt");
+
+    // FileUtils 已经处理了路径不是目录的情况（会返回空列表），所以这里简化了逻辑
+    if (fs::is_regular_file(input_root_) && input_root_.extension() == ".txt") {
+        if (files_to_process_.empty()) {
+            files_to_process_.push_back(input_root_);
         }
-        std::sort(files_to_process_.begin(), files_to_process_.end());
-    } else if (fs::is_regular_file(input_root_)) {
-        files_to_process_.push_back(input_root_);
     }
-    
+
     std::cout << "信息: 成功收集到 " << files_to_process_.size() << " 个待处理文件。" << std::endl;
     return !files_to_process_.empty();
 }
