@@ -31,14 +31,14 @@ ActionHandler::~ActionHandler() {
     close_database();
 }
 
-// --- [新增] 新的计时统计打印函数的实现 ---
-void ActionHandler::printTimingStatistics(double total_time_ms) const {
-    double total_time_s = total_time_ms / 1000.0; // 将毫秒转换为秒
+// --- [修改] 新的计时统计打印函数的实现 ---
+void ActionHandler::printTimingStatistics(const std::string& operation_name, double total_time_ms) const {
+    double total_time_s = total_time_ms / 1000.0;
 
     std::cout << "--------------------------------------\n";
-    std::cout << "Timing Statistics:\n\n";
+    std::cout << "Timing Statistics:\n";
+    std::cout << operation_name << "\n\n"; 
     
-    // 使用 std::fixed 和 std::setprecision 来控制小数位数
     std::cout << "Total time: " << std::fixed << std::setprecision(4) << total_time_s 
               << " seconds (" << total_time_ms << " ms)\n";
               
@@ -47,6 +47,7 @@ void ActionHandler::printTimingStatistics(double total_time_ms) const {
 
 
 bool ActionHandler::validateSourceFiles() {
+    const std::string current_operation_name = "validateSourceFiles";
     std::cout << "\n--- 阶段: 检验源文件 ---" << std::endl;
     if (files_to_process_.empty()) {
         std::cerr << YELLOW_COLOR << "警告: 没有已收集的文件可供检验。" << RESET_COLOR << std::endl;
@@ -69,13 +70,14 @@ bool ActionHandler::validateSourceFiles() {
     }
 
     // --- 调用新的计时函数，并将状态打印分离 ---
-    printTimingStatistics(total_validation_time_ms);
+    printTimingStatistics(current_operation_name, total_validation_time_ms);
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "源文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
 
 
 bool ActionHandler::convertFiles() {
+    const std::string current_operation_name = "convertFiles";
     std::cout << "\n--- 阶段: 转换文件 ---" << std::endl;
     if (files_to_process_.empty()) {
         std::cerr << YELLOW_COLOR << "警告: 没有已收集的文件可供转换。" << RESET_COLOR << std::endl;
@@ -115,8 +117,8 @@ bool ActionHandler::convertFiles() {
         }
     }
 
-    // --- 调用新的计时函数，并将状态打印分离 ---
-    printTimingStatistics(total_conversion_time_ms);
+    // --- [修改] 调用时传入操作名称 ---
+    printTimingStatistics(current_operation_name, total_conversion_time_ms);
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "文件转换阶段 " << (all_ok ? "全部成功" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
@@ -124,6 +126,7 @@ bool ActionHandler::convertFiles() {
 
 
 bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
+    const std::string current_operation_name = "validateOutputFiles";
     std::cout << "\n--- 阶段: 检验输出文件 ---" << std::endl;
     if (source_to_output_map_.empty()) {
         std::cerr << YELLOW_COLOR << "警告: 没有已转换的文件可供检验。请先运行转换操作。" << RESET_COLOR << std::endl;
@@ -147,8 +150,8 @@ bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
         }
     }
 
-    // --- 调用新的计时函数，并将状态打印分离 ---
-    printTimingStatistics(total_validation_time_ms);
+    // --- [修改] 调用时传入操作名称 ---
+    printTimingStatistics(current_operation_name, total_validation_time_ms);
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "输出文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
