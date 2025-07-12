@@ -22,41 +22,50 @@ ActionHandler::ActionHandler(const std::string& db_name, const AppConfig& config
       db_name_(db_name),
       app_config_(config),
       main_config_path_(main_config_path),
-      processor_(config) // 初始化 LogProcessor 成员
+      processor_(config) // <-- 用传入的 config 初始化 processor_
 {}
 
 ActionHandler::~ActionHandler() {
     close_database();
 }
 
+
+void ActionHandler::printStageSummary(const std::string& stage_name, double total_time_ms, bool success_status) const {
+    std::cout << "总耗时: " << total_time_ms << " ms\n";
+    std::cout << (success_status ? GREEN_COLOR : RED_COLOR)
+              << stage_name << "阶段 "
+              << (success_status ? "全部通过" : "存在失败项")
+              << "。" << RESET_COLOR << std::endl;
+}
+
+
 bool ActionHandler::validateSourceFiles() {
     std::cout << "\n--- 阶段: 检验源文件 ---" << std::endl;
     if (files_to_process_.empty()) {
         std::cerr << YELLOW_COLOR << "警告: 没有已收集的文件可供检验。" << RESET_COLOR << std::endl;
-        return true; // 没有文件也算成功
+        return true;
     }
 
     bool all_ok = true;
-    double total_validation_time_ms = 0.0; // <--- [新增] 用于累加的总时间
+    double total_validation_time_ms = 0.0;
 
     for (const auto& file : files_to_process_) {
         AppOptions opts;
         opts.validate_source = true;
         
-        // 调用 processFile 并获取包含计时结果的结构体
         ProcessingResult result = processor_.processFile(file, "", opts);
-        total_validation_time_ms += result.timings.validation_source_ms; // <--- [新增] 累加时间
+        total_validation_time_ms += result.timings.validation_source_ms;
         
         if (!result.success) {
             all_ok = false;
         }
     }
 
-    // --- [新增] 打印该阶段的总耗时 ---
-    std::cout << "总耗时: " << total_validation_time_ms << " ms\n";
-    std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "源文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
+    // --- 使用封装好的函数来打印总结 ---
+    printStageSummary("源文件检验", total_validation_time_ms, all_ok);
     return all_ok;
 }
+
 
 bool ActionHandler::convertFiles() {
     std::cout << "\n--- 阶段: 转换文件 ---" << std::endl;
@@ -74,7 +83,7 @@ bool ActionHandler::convertFiles() {
     }
     
     bool all_ok = true;
-    double total_conversion_time_ms = 0.0; // <--- [新增] 用于累加的总时间
+    double total_conversion_time_ms = 0.0;
 
     for (const auto& file : files_to_process_) {
         fs::path output_file_path;
@@ -88,9 +97,8 @@ bool ActionHandler::convertFiles() {
         AppOptions opts;
         opts.convert = true;
         
-        // 调用 processFile 并获取包含计时结果的结构体
         ProcessingResult result = processor_.processFile(file, output_file_path, opts);
-        total_conversion_time_ms += result.timings.conversion_ms; // <--- [新增] 累加时间
+        total_conversion_time_ms += result.timings.conversion_ms;
 
         if (result.success) {
             source_to_output_map_[file] = output_file_path;
@@ -99,9 +107,8 @@ bool ActionHandler::convertFiles() {
         }
     }
 
-    // --- [新增] 打印该阶段的总耗时 ---
-    std::cout << "总耗时: " << total_conversion_time_ms << " ms\n";
-    std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "文件转换阶段 " << (all_ok ? "全部成功" : "存在失败项") << "。" << RESET_COLOR << std::endl;
+    // --- 使用封装好的函数来打印总结 ---
+    printStageSummary("文件转换", total_conversion_time_ms, all_ok);
     return all_ok;
 }
 
@@ -115,7 +122,7 @@ bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
     }
 
     bool all_ok = true;
-    double total_validation_time_ms = 0.0; // <--- [新增] 用于累加的总时间
+    double total_validation_time_ms = 0.0;
 
     for (const auto& pair : source_to_output_map_) {
         const auto& output_file = pair.second;
@@ -123,20 +130,19 @@ bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
         opts.validate_output = true;
         opts.enable_day_count_check = enable_day_count_check;
         
-        // 调用 processFile 并获取包含计时结果的结构体
         ProcessingResult result = processor_.processFile("", output_file, opts);
-        total_validation_time_ms += result.timings.validation_output_ms; // <--- [新增] 累加时间
+        total_validation_time_ms += result.timings.validation_output_ms;
 
         if (!result.success) {
             all_ok = false;
         }
     }
 
-    // --- [新增] 打印该阶段的总耗时 ---
-    std::cout << "总耗时: " << total_validation_time_ms << " ms\n";
-    std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "输出文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
+    // --- 使用封装好的函数来打印总结 ---
+    printStageSummary("输出文件检验", total_validation_time_ms, all_ok);
     return all_ok;
 }
+
 
 bool ActionHandler::collectFiles(const std::string& input_path) {
     input_root_ = fs::path(input_path);
