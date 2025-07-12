@@ -8,6 +8,8 @@
 
 #include "FileUtils.h" // 递归查找文件
 
+#include <iomanip>// 包含用于格式化输出的头文件
+
 #include <iostream>
 #include <sqlite3.h>
 #include <filesystem>
@@ -29,13 +31,18 @@ ActionHandler::~ActionHandler() {
     close_database();
 }
 
+// --- [新增] 新的计时统计打印函数的实现 ---
+void ActionHandler::printTimingStatistics(double total_time_ms) const {
+    double total_time_s = total_time_ms / 1000.0; // 将毫秒转换为秒
 
-void ActionHandler::printStageSummary(const std::string& stage_name, double total_time_ms, bool success_status) const {
-    std::cout << "总耗时: " << total_time_ms << " ms\n";
-    std::cout << (success_status ? GREEN_COLOR : RED_COLOR)
-              << stage_name << "阶段 "
-              << (success_status ? "全部通过" : "存在失败项")
-              << "。" << RESET_COLOR << std::endl;
+    std::cout << "--------------------------------------\n";
+    std::cout << "Timing Statistics:\n\n";
+    
+    // 使用 std::fixed 和 std::setprecision 来控制小数位数
+    std::cout << "Total time: " << std::fixed << std::setprecision(4) << total_time_s 
+              << " seconds (" << total_time_ms << " ms)\n";
+              
+    std::cout << "--------------------------------------\n";
 }
 
 
@@ -61,8 +68,9 @@ bool ActionHandler::validateSourceFiles() {
         }
     }
 
-    // --- 使用封装好的函数来打印总结 ---
-    printStageSummary("源文件检验", total_validation_time_ms, all_ok);
+    // --- 调用新的计时函数，并将状态打印分离 ---
+    printTimingStatistics(total_validation_time_ms);
+    std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "源文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
 
@@ -107,8 +115,9 @@ bool ActionHandler::convertFiles() {
         }
     }
 
-    // --- 使用封装好的函数来打印总结 ---
-    printStageSummary("文件转换", total_conversion_time_ms, all_ok);
+    // --- 调用新的计时函数，并将状态打印分离 ---
+    printTimingStatistics(total_conversion_time_ms);
+    std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "文件转换阶段 " << (all_ok ? "全部成功" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
 
@@ -138,8 +147,9 @@ bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
         }
     }
 
-    // --- 使用封装好的函数来打印总结 ---
-    printStageSummary("输出文件检验", total_validation_time_ms, all_ok);
+    // --- 调用新的计时函数，并将状态打印分离 ---
+    printTimingStatistics(total_validation_time_ms);
+    std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "输出文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
 
