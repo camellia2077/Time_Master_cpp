@@ -37,14 +37,23 @@ bool ActionHandler::validateSourceFiles() {
     }
 
     bool all_ok = true;
+    double total_validation_time_ms = 0.0; // <--- [新增] 用于累加的总时间
+
     for (const auto& file : files_to_process_) {
         AppOptions opts;
         opts.validate_source = true;
-        // 调用 processFile，但只关心源文件验证部分
-        if (!processor_.processFile(file, "", opts)) {
+        
+        // 调用 processFile 并获取包含计时结果的结构体
+        ProcessingResult result = processor_.processFile(file, "", opts);
+        total_validation_time_ms += result.timings.validation_source_ms; // <--- [新增] 累加时间
+        
+        if (!result.success) {
             all_ok = false;
         }
     }
+
+    // --- [新增] 打印该阶段的总耗时 ---
+    std::cout << "总耗时: " << total_validation_time_ms << " ms\n";
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "源文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
@@ -59,16 +68,16 @@ bool ActionHandler::convertFiles() {
     bool is_dir = fs::is_directory(input_root_);
     fs::path output_root_path;
 
-    // 创建总的输出目录
     if (is_dir) {
         output_root_path = input_root_.parent_path() / ("Processed_" + input_root_.filename().string());
         fs::create_directories(output_root_path);
     }
     
     bool all_ok = true;
+    double total_conversion_time_ms = 0.0; // <--- [新增] 用于累加的总时间
+
     for (const auto& file : files_to_process_) {
         fs::path output_file_path;
-        // 构建输出路径
         if (is_dir) {
             output_file_path = output_root_path / fs::relative(file, input_root_);
             fs::create_directories(output_file_path.parent_path());
@@ -78,16 +87,25 @@ bool ActionHandler::convertFiles() {
 
         AppOptions opts;
         opts.convert = true;
-        // 调用 processFile，只关心转换部分
-        if (processor_.processFile(file, output_file_path, opts)) {
-            source_to_output_map_[file] = output_file_path; // 记录路径映射
+        
+        // 调用 processFile 并获取包含计时结果的结构体
+        ProcessingResult result = processor_.processFile(file, output_file_path, opts);
+        total_conversion_time_ms += result.timings.conversion_ms; // <--- [新增] 累加时间
+
+        if (result.success) {
+            source_to_output_map_[file] = output_file_path;
         } else {
             all_ok = false;
         }
     }
+
+    // --- [新增] 打印该阶段的总耗时 ---
+    std::cout << "总耗时: " << total_conversion_time_ms << " ms\n";
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "文件转换阶段 " << (all_ok ? "全部成功" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
+
+
 
 bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
     std::cout << "\n--- 阶段: 检验输出文件 ---" << std::endl;
@@ -97,16 +115,25 @@ bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
     }
 
     bool all_ok = true;
+    double total_validation_time_ms = 0.0; // <--- [新增] 用于累加的总时间
+
     for (const auto& pair : source_to_output_map_) {
         const auto& output_file = pair.second;
         AppOptions opts;
         opts.validate_output = true;
         opts.enable_day_count_check = enable_day_count_check;
-        // 调用 processFile，只关心输出文件验证部分
-        if (!processor_.processFile("", output_file, opts)) {
+        
+        // 调用 processFile 并获取包含计时结果的结构体
+        ProcessingResult result = processor_.processFile("", output_file, opts);
+        total_validation_time_ms += result.timings.validation_output_ms; // <--- [新增] 累加时间
+
+        if (!result.success) {
             all_ok = false;
         }
     }
+
+    // --- [新增] 打印该阶段的总耗时 ---
+    std::cout << "总耗时: " << total_validation_time_ms << " ms\n";
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "输出文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
