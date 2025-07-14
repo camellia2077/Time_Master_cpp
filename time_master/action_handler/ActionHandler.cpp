@@ -26,46 +26,60 @@ ActionHandler::~ActionHandler() {
     close_database();
 }
 // [新增] 导出所有周期报告的实现
-void ActionHandler::run_export_all_period_reports_query(const std::vector<int>& days_list) const {
+// [修改] 实现导出所有日报的逻辑
+void ActionHandler::run_export_all_daily_reports_query() const {
     if (!open_database_if_needed()) {
         std::cerr << RED_COLOR << "错误: 无法打开数据库，导出操作已中止。" << RESET_COLOR << std::endl;
         return;
     }
 
     QueryHandler query_handler(db_);
-    FormattedPeriodReports reports = query_handler.run_export_all_period_reports_query(days_list);
+    FormattedGroupedReports grouped_reports = query_handler.run_export_all_daily_reports_query();
 
-    if (reports.empty()) {
-        std::cout << YELLOW_COLOR << "信息: 数据库中没有可导出的周期报告内容。" << RESET_COLOR << std::endl;
+    if (grouped_reports.empty()) {
+        std::cout << YELLOW_COLOR << "信息: 数据库中没有可导出的日报内容。" << RESET_COLOR << std::endl;
         return;
     }
 
     int files_created = 0;
     try {
-        fs::path periods_dir = fs::path("Export") / "markdown" / "periods";
-        fs::create_directories(periods_dir);
+        for (const auto& year_pair : grouped_reports) {
+            int year = year_pair.first;
+            const auto& monthly_reports = year_pair.second;
+            
+            for (const auto& month_pair : monthly_reports) {
+                int month = month_pair.first;
+                const auto& daily_reports = month_pair.second;
 
-        for (const auto& report_pair : reports) {
-            int days = report_pair.first;
-            const std::string& report_content = report_pair.second;
+                // [修改] 创建包含年份和月份的目录路径
+                std::stringstream month_ss;
+                month_ss << std::setw(2) << std::setfill('0') << month;
+                fs::path month_dir = fs::path("Export") / "markdown" / "days" / std::to_string(year) / month_ss.str();
+                fs::create_directories(month_dir);
 
-            fs::path output_path = periods_dir / (std::to_string(days) + "-days.md");
-
-            std::ofstream output_file(output_path);
-            if (!output_file) {
-                std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
-                continue;
+                for (const auto& report_pair : daily_reports) {
+                    const std::string& date_str = report_pair.first;
+                    const std::string& report_content = report_pair.second;
+                    
+                    // [修改] 在新的月度文件夹中创建报告文件
+                    fs::path output_path = month_dir / (date_str + ".md");
+                    std::ofstream output_file(output_path);
+                    if (!output_file) {
+                        std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
+                        continue;
+                    }
+                    output_file << report_content;
+                    output_file.close();
+                    files_created++;
+                }
             }
-            output_file << report_content;
-            output_file.close();
-            files_created++;
         }
 
         if (files_created > 0) {
-            fs::path final_path = fs::absolute(periods_dir);
-            std::cout << GREEN_COLOR << "成功: 共创建 " << files_created << " 个周期报告文件，已保存至: " << final_path.string() << RESET_COLOR << std::endl;
+            fs::path final_path = fs::absolute("Export/markdown/days");
+            std::cout << GREEN_COLOR << "成功: 共创建 " << files_created << " 个日报文件，已保存至: " << final_path.string() << RESET_COLOR << std::endl;
         } else {
-             std::cout << YELLOW_COLOR << "信息: 没有可导出的周期报告内容。" << RESET_COLOR << std::endl;
+             std::cout << YELLOW_COLOR << "信息: 没有可导出的日报内容。" << RESET_COLOR << std::endl;
         }
 
     } catch (const fs::filesystem_error& e) {
@@ -257,16 +271,22 @@ void ActionHandler::run_export_all_daily_reports_query() const {
             int year = year_pair.first;
             const auto& monthly_reports = year_pair.second;
             
-            fs::path year_dir = fs::path("Export") / "markdown" / "days" / std::to_string(year);
-            fs::create_directories(year_dir);
-
             for (const auto& month_pair : monthly_reports) {
+                int month = month_pair.first;
                 const auto& daily_reports = month_pair.second;
+
+                // [修改] 创建包含年份和月份的目录路径
+                std::stringstream month_ss;
+                month_ss << std::setw(2) << std::setfill('0') << month;
+                fs::path month_dir = fs::path("Export") / "markdown" / "days" / std::to_string(year) / month_ss.str();
+                fs::create_directories(month_dir);
+
                 for (const auto& report_pair : daily_reports) {
                     const std::string& date_str = report_pair.first;
                     const std::string& report_content = report_pair.second;
                     
-                    fs::path output_path = year_dir / (date_str + ".md");
+                    // [修改] 在新的月度文件夹中创建报告文件
+                    fs::path output_path = month_dir / (date_str + ".md");
                     std::ofstream output_file(output_path);
                     if (!output_file) {
                         std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
