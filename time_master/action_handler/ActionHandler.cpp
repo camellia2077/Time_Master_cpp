@@ -25,8 +25,55 @@ ActionHandler::ActionHandler(const std::string& db_name, const AppConfig& config
 ActionHandler::~ActionHandler() {
     close_database();
 }
+// [新增] 导出所有周期报告的实现
+void ActionHandler::run_export_all_period_reports_query(const std::vector<int>& days_list) const {
+    if (!open_database_if_needed()) {
+        std::cerr << RED_COLOR << "错误: 无法打开数据库，导出操作已中止。" << RESET_COLOR << std::endl;
+        return;
+    }
 
-// ... (其他未修改的函数保持不变) ...
+    QueryHandler query_handler(db_);
+    FormattedPeriodReports reports = query_handler.run_export_all_period_reports_query(days_list);
+
+    if (reports.empty()) {
+        std::cout << YELLOW_COLOR << "信息: 数据库中没有可导出的周期报告内容。" << RESET_COLOR << std::endl;
+        return;
+    }
+
+    int files_created = 0;
+    try {
+        fs::path periods_dir = fs::path("Export") / "markdown" / "periods";
+        fs::create_directories(periods_dir);
+
+        for (const auto& report_pair : reports) {
+            int days = report_pair.first;
+            const std::string& report_content = report_pair.second;
+
+            fs::path output_path = periods_dir / (std::to_string(days) + "-days.md");
+
+            std::ofstream output_file(output_path);
+            if (!output_file) {
+                std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
+                continue;
+            }
+            output_file << report_content;
+            output_file.close();
+            files_created++;
+        }
+
+        if (files_created > 0) {
+            fs::path final_path = fs::absolute(periods_dir);
+            std::cout << GREEN_COLOR << "成功: 共创建 " << files_created << " 个周期报告文件，已保存至: " << final_path.string() << RESET_COLOR << std::endl;
+        } else {
+             std::cout << YELLOW_COLOR << "信息: 没有可导出的周期报告内容。" << RESET_COLOR << std::endl;
+        }
+
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << RED_COLOR << "文件系统错误: " << e.what() << RESET_COLOR << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << RED_COLOR << "导出过程中发生未知错误: " << e.what() << RESET_COLOR << std::endl;
+    }
+}
 void ActionHandler::printTimingStatistics(const std::string& operation_name, double total_time_ms) const {
     double total_time_s = total_time_ms / 1000.0;
 

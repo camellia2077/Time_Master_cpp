@@ -3,6 +3,7 @@
 #include <vector>
 #include <stdexcept>
 #include <print>
+#include <sstream> // [新增]
 
 // --- Windows-specific include for console functions ---
 #if defined(_WIN32) || defined(_WIN64)
@@ -171,14 +172,32 @@ int main(int argc, char* argv[]) {
         }
         // Branch 5: Data Export (-export, -e)
         else if (command == "-export" || command == "-e") {
-            if (args.size() != 3) {
+            if (args.size() < 3) {
                 throw std::runtime_error("Command '" + command + "' requires a sub-command (e.g., -export day).");
             }
             std::string sub_command = args[2];
             if (sub_command == "day" || sub_command == "d") {
                 action_handler.run_export_all_daily_reports_query();
-            } else if (sub_command == "month") { // [新增] month 子命令
+            } else if (sub_command == "month" || sub_command == "m") { 
                 action_handler.run_export_all_monthly_reports_query();
+            } else if (sub_command == "period" || sub_command == "p") { // [新增] period 子命令
+                if (args.size() != 4) {
+                    throw std::runtime_error("Command '-export period' requires a list of days (e.g., 7 or 7,30,90).");
+                }
+                std::string days_str = args[3];
+                std::vector<int> days_list;
+                std::string token;
+                std::istringstream tokenStream(days_str);
+                while (std::getline(tokenStream, token, ',')) {
+                    try {
+                        days_list.push_back(std::stoi(token));
+                    } catch (const std::invalid_argument& ia) {
+                        throw std::runtime_error("Invalid number provided in the days list: " + token);
+                    } catch (const std::out_of_range& oor) {
+                        throw std::runtime_error("Number out of range in days list: " + token);
+                    }
+                }
+                action_handler.run_export_all_period_reports_query(days_list);
             }
             else {
                 std::cerr << RED_COLOR << "Error: " << RESET_COLOR << "Unknown export sub-command '" << sub_command << "'.\n";
@@ -227,8 +246,9 @@ void print_full_usage(const char* app_name) {
     // [修改] 更新导出指令的帮助文档
     std::cout << GREEN_COLOR << "--- Data Export Module ---\n" << RESET_COLOR;
     std::cout << "  -export day (-e d)\t\tExport all daily reports to individual .md files.\n";
-    std::cout << "  -export month\t\t\tExport all monthly reports to combined .md files.\n";
-    std::cout << "  Example: " << app_name << " -export month\n\n";
+    std::cout << "  -export month (-e m)\t\tExport all monthly reports to combined .md files.\n";
+    std::cout << "  -export period (-e p) <days>\tExport period reports for given days (e.g., 7 or 7,30,90).\n";
+    std::cout << "  Example: " << app_name << " -export period 7,30\n\n";
     std::cout << GREEN_COLOR << "--- Other Options ---\n" << RESET_COLOR;
     std::cout << "  -h, --help\t\t\tShow this help message.\n";
     std::cout << "  -v, --version\t\t\tShow program version.\n";
