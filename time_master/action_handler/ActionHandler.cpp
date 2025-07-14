@@ -1,17 +1,12 @@
-#include "ActionHandler.h "
-#include "QueryHandler.h" // 查询数据库
-#include "DataImporter.h" // 解析文本并且插入数据库
-
+#include "ActionHandler.h"
+#include "QueryHandler.h"
+#include "DataImporter.h"
 #include "common_utils.h"
-
-#include "LogProcessor.h" // 包含格式验证和格式转换
-
-#include "FileUtils.h" // 递归查找文件
-
-#include <iomanip>// 包含用于格式化输出的头文件
-
+#include "LogProcessor.h"
+#include "FileUtils.h"
+#include <iomanip>
 #include <iostream>
-#include <sqlite3.h>
+#include <fstream>
 #include <filesystem>
 #include <set>
 #include <map>
@@ -24,14 +19,14 @@ ActionHandler::ActionHandler(const std::string& db_name, const AppConfig& config
       db_name_(db_name),
       app_config_(config),
       main_config_path_(main_config_path),
-      processor_(config) // <-- 用传入的 config 初始化 processor_
+      processor_(config)
 {}
 
 ActionHandler::~ActionHandler() {
     close_database();
 }
 
-// --- [修改] 新的计时统计打印函数的实现 ---
+// ... (其他未修改的函数保持不变) ...
 void ActionHandler::printTimingStatistics(const std::string& operation_name, double total_time_ms) const {
     double total_time_s = total_time_ms / 1000.0;
 
@@ -69,7 +64,6 @@ bool ActionHandler::validateSourceFiles() {
         }
     }
 
-    // --- 调用新的计时函数，并将状态打印分离 ---
     printTimingStatistics(current_operation_name, total_validation_time_ms);
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "源文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
@@ -117,7 +111,6 @@ bool ActionHandler::convertFiles() {
         }
     }
 
-    // --- [修改] 调用时传入操作名称 ---
     printTimingStatistics(current_operation_name, total_conversion_time_ms);
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "文件转换阶段 " << (all_ok ? "全部成功" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
@@ -150,7 +143,6 @@ bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
         }
     }
 
-    // --- [修改] 调用时传入操作名称 ---
     printTimingStatistics(current_operation_name, total_validation_time_ms);
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "输出文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
@@ -164,13 +156,11 @@ bool ActionHandler::collectFiles(const std::string& input_path) {
         return false;
     }
 
-    files_to_process_.clear(); // 清空旧数据
-    source_to_output_map_.clear(); // 清空旧数据
+    files_to_process_.clear(); 
+    source_to_output_map_.clear(); 
 
-    // 直接调用 FileUtils 来完成文件查找和排序
     files_to_process_ = FileUtils::find_files_by_extension_recursively(input_root_, ".txt");
 
-    // FileUtils 已经处理了路径不是目录的情况（会返回空列表），所以这里简化了逻辑
     if (fs::is_regular_file(input_root_) && input_root_.extension() == ".txt") {
         if (files_to_process_.empty()) {
             files_to_process_.push_back(input_root_);
@@ -181,21 +171,93 @@ bool ActionHandler::collectFiles(const std::string& input_path) {
     return !files_to_process_.empty();
 }
 
-
-// --- 查询逻辑实现 ---
-std::string ActionHandler::run_daily_query(const std::string& date) {
+std::string ActionHandler::run_daily_query(const std::string& date) const {
     if (!open_database_if_needed()) return "";
-    return QueryHandler(db_).run_daily_query(date);
+    QueryHandler query_handler(db_);
+    return query_handler.run_daily_query(date);
 }
 
-std::string ActionHandler::run_period_query(int days) {
+std::string ActionHandler::run_period_query(int days) const {
     if (!open_database_if_needed()) return "";
-    return QueryHandler(db_).run_period_query(days);
+    QueryHandler query_handler(db_);
+    return query_handler.run_period_query(days);
 }
 
-std::string ActionHandler::run_monthly_query(const std::string& month) {
+std::string ActionHandler::run_monthly_query(const std::string& month) const {
     if (!open_database_if_needed()) return "";
-    return QueryHandler(db_).run_monthly_query(month);
+    QueryHandler query_handler(db_);
+    return query_handler.run_monthly_query(month);
+}
+
+// [修改] 实现按月合并报告并写入文件的逻辑
+void ActionHandler::run_export_all_reports_query() const {
+    if (!open_database_if_needed()) {
+        std::cerr << RED_COLOR << "错误: 无法打开数据库，导出操作已中止。" << RESET_COLOR << std::endl;
+        return;
+    }
+
+    QueryHandler query_handler(db_);
+    FormattedGroupedReports grouped_reports = query_handler.run_export_all_reports_query();
+
+    if (grouped_reports.empty()) {
+        std::cout << YELLOW_COLOR << "信息: 数据库中没有可导出的日报内容。" << RESET_COLOR << std::endl;
+        return;
+    }
+
+    int files_created = 0;
+    try {
+        // 遍历按年分类的报告
+        for (const auto& year_pair : grouped_reports) {
+            int year = year_pair.first;
+            const auto& monthly_reports = year_pair.second;
+
+            // 为当前年份创建目录
+            fs::path year_dir = fs::path("Export") / "markdown" / std::to_string(year);
+            fs::create_directories(year_dir);
+
+            // 遍历该年份下按月分类的报告
+            for (const auto& month_pair : monthly_reports) {
+                int month = month_pair.first;
+                const auto& daily_reports = month_pair.second;
+
+                // 创建一个 stringstream 来合并当月的所有日报
+                std::stringstream month_content_ss;
+                for (size_t i = 0; i < daily_reports.size(); ++i) {
+                    month_content_ss << daily_reports[i].second; // 报告内容
+                    if (i < daily_reports.size() - 1) {
+                        month_content_ss << "\n\n---\n\n"; // 添加分隔符
+                    }
+                }
+
+                // 生成文件名，例如 "2023_01.md"
+                std::stringstream filename_ss;
+                filename_ss << year << "_" << std::setw(2) << std::setfill('0') << month << ".md";
+                fs::path output_path = year_dir / filename_ss.str();
+
+                // 将合并后的内容写入文件
+                std::ofstream output_file(output_path);
+                if (!output_file) {
+                    std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
+                    continue; // 继续处理下一个月
+                }
+                output_file << month_content_ss.str();
+                output_file.close();
+                files_created++;
+            }
+        }
+
+        if (files_created > 0) {
+            fs::path final_path = fs::absolute("Export/markdown");
+            std::cout << GREEN_COLOR << "成功: 共创建 " << files_created << " 个月度报告文件，已保存至: " << final_path.string() << RESET_COLOR << std::endl;
+        } else {
+             std::cout << YELLOW_COLOR << "信息: 没有可导出的日报内容。" << RESET_COLOR << std::endl;
+        }
+
+    } catch (const fs::filesystem_error& e) {
+        std::cerr << RED_COLOR << "文件系统错误: " << e.what() << RESET_COLOR << std::endl;
+    } catch (const std::exception& e) {
+        std::cerr << RED_COLOR << "导出过程中发生未知错误: " << e.what() << RESET_COLOR << std::endl;
+    }
 }
 
 
@@ -211,47 +273,39 @@ void ActionHandler::run_database_import(const std::string& processed_path_str) {
     std::cout << "Import process finished." << std::endl;
 }
 
-// --- 完整流水线逻辑实现 ---
 void ActionHandler::run_full_pipeline_and_import(const std::string& source_path) {
     std::cout << "\n--- 开始完整流水线处理 ---" << std::endl;
     close_database();
 
-    // 阶段 1: 收集文件
     if (!collectFiles(source_path)) {
         std::cerr << RED_COLOR << "错误: 文件收集失败，流水线终止。" << RESET_COLOR << std::endl;
         return;
     }
 
-    // 阶段 2: 验证源文件
     if (!validateSourceFiles()) {
         std::cerr << RED_COLOR << "错误: 源文件检验失败，流水线终止。" << RESET_COLOR << std::endl;
         return;
     }
 
-    // 阶段 3: 转换文件
     if (!convertFiles()) {
         std::cerr << RED_COLOR << "错误: 文件转换失败，流水线终止。" << RESET_COLOR << std::endl;
         return;
     }
 
-    // 阶段 4: 验证输出文件
-    if (!validateOutputFiles(true)) { // 在完整流水线中启用天数检查
+    if (!validateOutputFiles(true)) {
         std::cerr << RED_COLOR << "错误: 输出文件检验失败，流水线终止。" << RESET_COLOR << std::endl;
         return;
     }
 
-    // 阶段 5: 导入数据库
     fs::path output_root_path = input_root_.parent_path() / ("Processed_" + input_root_.filename().string());
     run_database_import(output_root_path.string());
     
     std::cout << GREEN_COLOR << "\n成功: 完整流水线处理完毕并已导入数据。" << RESET_COLOR << std::endl;
 }
 
-
-// --- 数据库连接管理 ---
-bool ActionHandler::open_database_if_needed() {
+bool ActionHandler::open_database_if_needed() const {
     if (db_ == nullptr) {
-        if (sqlite3_open(db_name_.c_str(), &db_)) {
+        if (sqlite3_open(db_name_.c_str(), (sqlite3**)&db_)) {
             std::cerr << RED_COLOR << "Error: " << RESET_COLOR << "Can't open database " << db_name_ << ": " << sqlite3_errmsg(db_) << std::endl;
             sqlite3_close(db_);
             db_ = nullptr;
