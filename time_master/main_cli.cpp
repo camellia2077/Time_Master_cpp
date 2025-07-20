@@ -3,7 +3,8 @@
 #include <vector>
 #include <stdexcept>
 #include <print>
-#include <sstream> // [新增]
+#include <sstream>
+#include <algorithm> // for std::find
 
 // --- Windows-specific include for console functions ---
 #if defined(_WIN32) || defined(_WIN64)
@@ -17,6 +18,8 @@
 #include "ActionHandler.h"
 #include "QueryHandler.h"
 #include "LogProcessor.h"
+// [新增] 引入 ReportFormat 枚举
+#include "report_generators/_shared/ReportFormat.h" 
 
 // --- Global Constants ---
 const std::string DATABASE_NAME = "time_data.db";
@@ -25,7 +28,7 @@ const std::string DATABASE_NAME = "time_data.db";
 void print_full_usage(const char* app_name);
 bool open_database(sqlite3** db, const std::string& db_name);
 void close_database(sqlite3** db);
-
+ReportFormat parse_format_option(const std::vector<std::string>& args); // [新增] 辅助函数声明
 
 int main(int argc, char* argv[]) {
     // --- Console Setup (Windows Only) ---
@@ -152,17 +155,22 @@ int main(int argc, char* argv[]) {
         
             std::string sub_command = args[2];
             std::string query_arg = args[3];
+            // [修改] 解析格式选项
+            ReportFormat format = parse_format_option(args);
         
             if (sub_command == "d" || sub_command == "daily") {
-                std::cout << action_handler.run_daily_query(query_arg);
+                // [修改] 传递格式参数
+                std::cout << action_handler.run_daily_query(query_arg, format);
             } else if (sub_command == "p" || sub_command == "period") {
                 try {
+                    // 周期报告暂未实现多格式，因此不传递 format
                     std::cout << action_handler.run_period_query(std::stoi(query_arg));
                 } catch (const std::exception&) {
                     std::cerr << RED_COLOR << "Error: " << RESET_COLOR << "<days> argument must be a valid number.\n";
                     return 1;
                 }
             } else if (sub_command == "m" || sub_command == "monthly") {
+                // 月报暂未实现多格式，因此不传递 format
                 std::cout << action_handler.run_monthly_query(query_arg);
             } else {
                 std::cerr << RED_COLOR << "Error: " << RESET_COLOR << "Unknown query sub-command '" << sub_command << "'.\n";
@@ -176,13 +184,17 @@ int main(int argc, char* argv[]) {
                 throw std::runtime_error("Command '" + command + "' requires a sub-command (e.g., -export day).");
             }
             std::string sub_command = args[2];
+            // [修改] 解析格式选项
+            ReportFormat format = parse_format_option(args);
+
             if (sub_command == "day" || sub_command == "d") {
-                action_handler.run_export_all_daily_reports_query();
+                // [修改] 传递格式参数
+                action_handler.run_export_all_daily_reports_query(format);
             } else if (sub_command == "month" || sub_command == "m") { 
                 action_handler.run_export_all_monthly_reports_query();
-            } else if (sub_command == "period" || sub_command == "p") { // [新增] period 子命令
-                if (args.size() != 4) {
-                    throw std::runtime_error("Command '-export period' requires a list of days (e.g., 7 or 7,30,90).");
+            } else if (sub_command == "period" || sub_command == "p") {
+                if (args.size() < 4 || (args.size() > 4 && args[4] == "-f") || (args.size() > 5 && args[4] != "-f")) {
+                     throw std::runtime_error("Command '-export period' requires a list of days (e.g., 7 or 7,30,90).");
                 }
                 std::string days_str = args[3];
                 std::vector<int> days_list;
@@ -220,6 +232,41 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
+/**
+ * @brief [新增] 解析命令行中的格式选项 (-f, --format)。
+ * @param args 完整的命令行参数列表。
+ * @return ReportFormat 枚举值。如果未指定，默认为 Markdown。
+ */
+ReportFormat parse_format_option(const std::vector<std::string>& args) {
+    auto it_f = std::find(args.begin(), args.end(), "-f");
+    auto it_format = std::find(args.begin(), args.end(), "--format");
+
+    std::string format_str = "md"; // 默认值
+
+    if (it_f != args.end() && std::next(it_f) != args.end()) {
+        format_str = *std::next(it_f);
+    } else if (it_format != args.end() && std::next(it_format) != args.end()) {
+        format_str = *std::next(it_format);
+    }
+
+    if (format_str == "md" || format_str == "markdown") {
+        return ReportFormat::Markdown;
+    }
+    // else if (format_str == "json") { // 未来可支持
+    //     return ReportFormat::Json;
+    // }
+    
+    // 如果指定了未知的格式，抛出异常
+    if (it_f != args.end() || it_format != args.end()) {
+        throw std::runtime_error("Unsupported format specified: '" + format_str + "'. Supported formats: md, markdown.");
+    }
+    
+    // 如果没有 -f 或 --format 标志，返回默认值
+    return ReportFormat::Markdown;
+}
+
+
+// [修改] 更新帮助文本
 void print_full_usage(const char* app_name) {
     std::cout << "TimeMaster: A command-line tool for time data pre-processing, import, and querying.\n\n";
     std::cout << "Usage: " << app_name << " <command> [arguments...]\n\n";
@@ -242,13 +289,17 @@ void print_full_usage(const char* app_name) {
     std::cout << "  -q d, --query daily <YYYYMMDD>\tQuery statistics for a specific day.\n";
     std::cout << "  -q p, --query period <days>\t\tQuery statistics for the last N days.\n";
     std::cout << "  -q m, --query monthly <YYYYMM>\tQuery statistics for a specific month.\n";
-    std::cout << "  Example: " << app_name << " -q m 202405\n\n";
-    // [修改] 更新导出指令的帮助文档
+    std::cout << "  Optional (for daily query):\n";
+    std::cout << "    -f, --format <format>\t\tSpecify output format (e.g., md). Default is md.\n";
+    std::cout << "  Example: " << app_name << " -q d 20240501 -f md\n\n";
+
     std::cout << GREEN_COLOR << "--- Data Export Module ---\n" << RESET_COLOR;
-    std::cout << "  -export day (-e d)\t\tExport all daily reports to individual .md files.\n";
-    std::cout << "  -export month (-e m)\t\tExport all monthly reports to combined .md files.\n";
-    std::cout << "  -export period (-e p) <days>\tExport period reports for given days (e.g., 7 or 7,30,90).\n";
-    std::cout << "  Example: " << app_name << " -export period 7,30\n\n";
+    std::cout << "  -e d, --export day\t\t\tExport all daily reports.\n";
+    std::cout << "  -e m, --export month\t\t\tExport all monthly reports to combined .md files.\n";
+    std::cout << "  -e p, --export period <days>\t\tExport period reports for given days (e.g., 7 or 7,30,90).\n";
+    std::cout << "  Optional (for day export):\n";
+    std::cout << "    -f, --format <format>\t\tSpecify output format (e.g., md). Default is md.\n";
+    std::cout << "  Example: " << app_name << " -export day -f md\n\n";
     std::cout << GREEN_COLOR << "--- Other Options ---\n" << RESET_COLOR;
     std::cout << "  -h, --help\t\t\tShow this help message.\n";
     std::cout << "  -v, --version\t\t\tShow program version.\n";
