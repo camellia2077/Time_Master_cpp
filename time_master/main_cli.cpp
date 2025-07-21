@@ -302,7 +302,7 @@ ReportFormat parse_format_option(const std::vector<std::string>& args) {
     if (format_str == "md" || format_str == "markdown") {
         return ReportFormat::Markdown;
     } else if (format_str == "tex") { // 新增对 "tex" 格式的支持
-        return ReportFormat::LaTex;
+        return ReportFormat::LaTeX;
     }
     // else if (format_str == "json") { // 未来可支持
     //     return ReportFormat::Json;
