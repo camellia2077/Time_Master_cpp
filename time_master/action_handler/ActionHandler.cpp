@@ -4,6 +4,7 @@
 #include "common_utils.h"
 #include "LogProcessor.h"
 #include "FileUtils.h"
+#include "ExportUtils.h" // 引入新的工具头文件
 #include <iomanip>
 #include <iostream>
 #include <fstream>
@@ -11,7 +12,7 @@
 #include <set>
 #include <map>
 #include <ctime>
-#include <stdexcept> // 用于 std::invalid_argument
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -27,79 +28,23 @@ ActionHandler::~ActionHandler() {
     close_database();
 }
 
-// [修改] 实现更新后的 run_daily_query 接口
 std::string ActionHandler::run_daily_query(const std::string& date, ReportFormat format) const {
     if (!open_database_if_needed()) return "";
     QueryHandler query_handler(db_);
-    // 将 format 参数向下传递
     return query_handler.run_daily_query(date, format);
 }
 
-// [修改] 实现更新后的 run_period_query 接口
 std::string ActionHandler::run_period_query(int days, ReportFormat format) const {
     if (!open_database_if_needed()) return "";
     QueryHandler query_handler(db_);
-    // 将 format 参数向下传递给 QueryHandler
     return query_handler.run_period_query(days, format);
 }
 
-// [修改] 实现更新后的 run_monthly_query 接口
 std::string ActionHandler::run_monthly_query(const std::string& month, ReportFormat format) const {
     if (!open_database_if_needed()) return "";
     QueryHandler query_handler(db_);
-    // 将 format 参数向下传递给 QueryHandler
     return query_handler.run_monthly_query(month, format);
 }
-
-
-/**
- * @brief Returns details like directory name and file extension for a given report format.
- * @param format The report format enum.
- * @return An optional containing the details, or nullopt if the format is not supported.
- */
-std::optional<ActionHandler::ReportFormatDetails> ActionHandler::get_report_format_details(ReportFormat format) const {
-    switch (format) {
-        case ReportFormat::Markdown:
-            return {{"Markdown", ".md"}};
-        case ReportFormat::LaTex:
-            return {{"LaTex", ".tex"}};
-        // case ReportFormat::Json: // Future support
-        //     return {{"json", ".json"}};
-        default:
-            std::cerr << RED_COLOR << "错误: 不支持的导出格式。" << RESET_COLOR << std::endl;
-            return std::nullopt;
-    }
-}
-
-/**
- * @brief A generic executor for file export tasks.
- * @param report_type_name_singular The singular name of the report type (e.g., "日报").
- * @param export_root_path The base path for the exported files.
- * @param file_writing_lambda A function that performs the file writing and returns the count of created files.
- */
-void ActionHandler::execute_export_task(
-    const std::string& report_type_name_singular,
-    const fs::path& export_root_path,
-    const std::function<int()>& file_writing_lambda
-) const {
-    try {
-        int files_created = file_writing_lambda();
-
-        if (files_created > 0) {
-            fs::path final_path = fs::absolute(export_root_path);
-            std::cout << GREEN_COLOR << "成功: 共创建 " << files_created << " 个" << report_type_name_singular 
-                      << "文件，已保存至: " << final_path.string() << RESET_COLOR << std::endl;
-        } else {
-             std::cout << YELLOW_COLOR << "信息: 没有可导出的" << report_type_name_singular << "内容。" << RESET_COLOR << std::endl;
-        }
-
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << RED_COLOR << "文件系统错误: " << e.what() << RESET_COLOR << std::endl;
-    } catch (const std::exception& e) {
-        std::cerr << RED_COLOR << "导出过程中发生未知错误: " << e.what() << RESET_COLOR << std::endl;
-    }
-}
-
 
 void ActionHandler::run_export_all_daily_reports_query(ReportFormat format) const {
     if (!open_database_if_needed()) {
@@ -115,9 +60,9 @@ void ActionHandler::run_export_all_daily_reports_query(ReportFormat format) cons
         return;
     }
 
-    auto format_details_opt = get_report_format_details(format);
+    auto format_details_opt = ExportUtils::get_report_format_details(format);
     if (!format_details_opt) {
-        return; // Error already printed by helper
+        return;
     }
     const auto& format_details = *format_details_opt;
 
@@ -152,7 +97,7 @@ void ActionHandler::run_export_all_daily_reports_query(ReportFormat format) cons
         return files_created;
     };
     
-    execute_export_task("日报", export_base_dir, daily_export_logic);
+    ExportUtils::execute_export_task("日报", export_base_dir, daily_export_logic);
 }
 
 void ActionHandler::run_export_all_monthly_reports_query(ReportFormat format) const {
@@ -169,7 +114,7 @@ void ActionHandler::run_export_all_monthly_reports_query(ReportFormat format) co
         return;
     }
 
-    auto format_details_opt = get_report_format_details(format);
+    auto format_details_opt = ExportUtils::get_report_format_details(format);
     if (!format_details_opt) {
         return;
     }
@@ -204,7 +149,7 @@ void ActionHandler::run_export_all_monthly_reports_query(ReportFormat format) co
         return files_created;
     };
 
-    execute_export_task("月度报告", export_base_dir, monthly_export_logic);
+    ExportUtils::execute_export_task("月度报告", export_base_dir, monthly_export_logic);
 }
 
 void ActionHandler::run_export_all_period_reports_query(const std::vector<int>& days_list, ReportFormat format) const {
@@ -221,7 +166,7 @@ void ActionHandler::run_export_all_period_reports_query(const std::vector<int>& 
         return;
     }
     
-    auto format_details_opt = get_report_format_details(format);
+    auto format_details_opt = ExportUtils::get_report_format_details(format);
     if (!format_details_opt) {
         return;
     }
@@ -251,7 +196,7 @@ void ActionHandler::run_export_all_period_reports_query(const std::vector<int>& 
         return files_created;
     };
 
-    execute_export_task("周期报告", export_base_dir, period_export_logic);
+    ExportUtils::execute_export_task("周期报告", export_base_dir, period_export_logic);
 }
 
 void ActionHandler::printTimingStatistics(const std::string& operation_name, double total_time_ms) const {
