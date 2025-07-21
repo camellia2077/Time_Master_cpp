@@ -282,6 +282,11 @@ int main(int argc, char* argv[]) {
  * @param args 完整的命令行参数列表。
  * @return ReportFormat 枚举值。如果未指定，默认为 Markdown。
  */
+/**
+ * @brief [修改] 解析命令行中的格式选项 (-f, --format)。
+ * @param args 完整的命令行参数列表。
+ * @return ReportFormat 枚举值。如果未指定，默认为 Markdown。
+ */
 ReportFormat parse_format_option(const std::vector<std::string>& args) {
     auto it_f = std::find(args.begin(), args.end(), "-f");
     auto it_format = std::find(args.begin(), args.end(), "--format");
@@ -296,6 +301,8 @@ ReportFormat parse_format_option(const std::vector<std::string>& args) {
 
     if (format_str == "md" || format_str == "markdown") {
         return ReportFormat::Markdown;
+    } else if (format_str == "tex") { // 新增对 "tex" 格式的支持
+        return ReportFormat::LaTex;
     }
     // else if (format_str == "json") { // 未来可支持
     //     return ReportFormat::Json;
@@ -303,7 +310,8 @@ ReportFormat parse_format_option(const std::vector<std::string>& args) {
     
     // 如果指定了未知的格式，抛出异常
     if (it_f != args.end() || it_format != args.end()) {
-        throw std::runtime_error("Unsupported format specified: '" + format_str + "'. Supported formats: md, markdown.");
+        // 更新错误信息以包含新的支持格式
+        throw std::runtime_error("Unsupported format specified: '" + format_str + "'. Supported formats: md, markdown, tex.");
     }
     
     // 如果没有 -f 或 --format 标志，返回默认值
@@ -333,19 +341,21 @@ void print_full_usage(const char* app_name) {
 
     std::cout << GREEN_COLOR << "--- Data Query Module ---\n" << RESET_COLOR;
     std::cout << "  -q d, --query daily <YYYYMMDD>\tQuery statistics for a specific day.\n";
-    std::cout << "  -q p, --query period <days>\t\tQuery statistics for last N days. Can be a list (e.g., 7,30).\n"; // [修改]
+    std::cout << "  -q p, --query period <days>\t\tQuery statistics for last N days. Can be a list (e.g., 7,30).\n";
     std::cout << "  -q m, --query monthly <YYYYMM>\tQuery statistics for a specific month.\n";
     std::cout << "  Optional (for ALL queries):\n";
-    std::cout << "    -f, --format <format>\t\tSpecify output format (e.g., md). Default is md.\n";
-    std::cout << "  Example: " << app_name << " -q p 7,30,90 -f md\n\n"; // [修改]
+    // 更新帮助文本，加入 tex 选项
+    std::cout << "    -f, --format <format>\t\tSpecify output format (e.g., md, tex). Default is md.\n";
+    std::cout << "  Example: " << app_name << " -q d 20240101 -f tex\n\n";
 
     std::cout << GREEN_COLOR << "--- Data Export Module ---\n" << RESET_COLOR;
     std::cout << "  -e d, --export day\t\t\tExport all daily reports.\n";
     std::cout << "  -e m, --export month\t\t\tExport all monthly reports.\n";
     std::cout << "  -e p, --export period <days>\t\tExport period reports for given days (e.g., 7 or 7,30,90).\n";
     std::cout << "  Optional (for ALL exports):\n";
-    std::cout << "    -f, --format <format>\t\tSpecify output format (e.g., md). Default is md.\n";
-    std::cout << "  Example: " << app_name << " -export period 7,30 -f md\n\n";
+    // 更新帮助文本，加入 tex 选项
+    std::cout << "    -f, --format <format>\t\tSpecify output format (e.g., md, tex). Default is md.\n";
+    std::cout << "  Example: " << app_name << " -export day -f tex\n\n";
 
     std::cout << GREEN_COLOR << "--- Other Options ---\n" << RESET_COLOR;
     std::cout << "  -h, --help\t\t\tShow this help message.\n";
