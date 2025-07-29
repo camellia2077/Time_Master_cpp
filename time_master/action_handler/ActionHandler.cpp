@@ -21,7 +21,8 @@ ActionHandler::ActionHandler(const std::string& db_name, const AppConfig& config
       db_name_(db_name),
       app_config_(config),
       main_config_path_(main_config_path),
-      processor_(config)
+      processor_(config),
+      export_root_path_(config.export_path.value_or("Export")) // 初始化新的成员变量。如果 config 中有 export_path，则使用它，否则默认为 "Export"
 {}
 
 ActionHandler::~ActionHandler() {
@@ -66,7 +67,8 @@ void ActionHandler::run_export_all_daily_reports_query(ReportFormat format) cons
     }
     const auto& format_details = *format_details_opt;
 
-    fs::path export_base_dir = fs::path("Export") / format_details.dir_name / "days";
+    // 使用成员变量替换硬编码的 "Export"
+    fs::path export_base_dir = export_root_path_ / format_details.dir_name / "days";    
 
     auto daily_export_logic = [&]() -> int {
         int files_created = 0;
@@ -120,7 +122,7 @@ void ActionHandler::run_export_all_monthly_reports_query(ReportFormat format) co
     }
     const auto& format_details = *format_details_opt;
     
-    fs::path export_base_dir = fs::path("Export") / format_details.dir_name / "months";
+    fs::path export_base_dir = export_root_path_ / format_details.dir_name / "months";
 
     auto monthly_export_logic = [&]() -> int {
         int files_created = 0;
@@ -172,7 +174,7 @@ void ActionHandler::run_export_all_period_reports_query(const std::vector<int>& 
     }
     const auto& format_details = *format_details_opt;
 
-    fs::path export_base_dir = fs::path("Export") / format_details.dir_name / "periods";
+    fs::path export_base_dir = export_root_path_ / format_details.dir_name / "periods";
     fs::create_directories(export_base_dir);
 
     auto period_export_logic = [&]() -> int {
