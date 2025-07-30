@@ -22,7 +22,7 @@ ActionHandler::ActionHandler(const std::string& db_name, const AppConfig& config
       app_config_(config),
       main_config_path_(main_config_path),
       processor_(config),
-      export_root_path_(config.export_path.value_or("Export")) // 初始化新的成员变量。如果 config 中有 export_path，则使用它，否则默认为 "Export"
+      export_root_path_(config.export_path.value_or("exported_files")) // 导出文件的根目录命名
 {}
 
 ActionHandler::~ActionHandler() {
