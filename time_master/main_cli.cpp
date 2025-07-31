@@ -20,7 +20,7 @@
 #include "queries//QueryHandler.h"
 #include "reprocessing/LogProcessor.h"
 
-#include "queries/report_generators/_shared/ReportFormat.h" // 引入 ReportFormat 枚举
+#include "queries/_shared/ReportFormat.h" // 引入 ReportFormat 枚举
 
 // --- Global Constants ---
 const std::string DATABASE_NAME = "time_data.db";
