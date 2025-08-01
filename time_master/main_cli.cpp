@@ -1,3 +1,4 @@
+#include "common/pch.h"
 // main_cli.cpp
 #include <iostream>
 #include <string>
