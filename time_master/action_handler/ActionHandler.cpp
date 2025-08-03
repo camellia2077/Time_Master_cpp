@@ -1,308 +1,190 @@
-#include "common/pch.h"
-// action_handler\ActionHandler.cpp
 #include "action_handler/ActionHandler.h"
-#include "ExportUtils.h" 
-
-#include "queries/QueryHandler.h"
+#include "action_handler/DatabaseManager.h" 
+#include "action_handler/ReportExporter.h"  
+#include "queries/QueryHandler.h"          // 引入 QueryHandler 以执行直接查询
 #include "db_inserter/DataImporter.h"
 #include "common/common_utils.h"
-#include "reprocessing/LogProcessor.h"
 #include "file_handler/FileUtils.h"
 
 #include <iomanip>
 #include <iostream>
-#include <fstream>
-#include <filesystem>
-#include <set>
-#include <map>
-#include <ctime>
 #include <stdexcept>
+#include <string> // 引入 <string> 以便使用 std::string
 
 namespace fs = std::filesystem;
 
+// 构造函数: 修正了初始化列表的顺序以匹配头文件中的声明顺序，并初始化了新的 db_name_ 成员
 ActionHandler::ActionHandler(const std::string& db_name, const AppConfig& config, const std::string& main_config_path)
-    : db_(nullptr),
-      db_name_(db_name),
-      app_config_(config),
+    : app_config_(config),
       main_config_path_(main_config_path),
-      processor_(config),
-      export_root_path_(config.export_path.value_or("exported_files")) // 导出文件的根目录命名
-{}
-
-ActionHandler::~ActionHandler() {
-    close_database();
+      db_name_(db_name), // 新增: 初始化 db_name_
+      export_root_path_(config.export_path.value_or("exported_files")),
+      processor_(config)
+{
+    db_manager_ = std::make_unique<DatabaseManager>(db_name);
 }
 
-std::string ActionHandler::run_daily_query(const std::string& date, ReportFormat format) const {
-    if (!open_database_if_needed()) return "";
-    QueryHandler query_handler(db_);
+ActionHandler::~ActionHandler() = default;
+
+// =========================================================================
+//                      直接查询实现
+// =========================================================================
+
+std::string ActionHandler::run_daily_query(const std::string& date, ReportFormat format) {
+    if (!db_manager_->open_database_if_needed()) {
+        // 修正: 使用 std::string 进行字符串拼接
+        return std::string(RED_COLOR) + "错误: 无法打开数据库，查询操作中止。" + RESET_COLOR;
+    }
+    QueryHandler query_handler(db_manager_->get_db_connection());
     return query_handler.run_daily_query(date, format);
 }
 
-std::string ActionHandler::run_period_query(int days, ReportFormat format) const {
-    if (!open_database_if_needed()) return "";
-    QueryHandler query_handler(db_);
-    return query_handler.run_period_query(days, format);
-}
-
-std::string ActionHandler::run_monthly_query(const std::string& month, ReportFormat format) const {
-    if (!open_database_if_needed()) return "";
-    QueryHandler query_handler(db_);
+std::string ActionHandler::run_monthly_query(const std::string& month, ReportFormat format) {
+    if (!db_manager_->open_database_if_needed()) {
+        // 修正: 使用 std::string 进行字符串拼接
+        return std::string(RED_COLOR) + "错误: 无法打开数据库，查询操作中止。" + RESET_COLOR;
+    }
+    QueryHandler query_handler(db_manager_->get_db_connection());
     return query_handler.run_monthly_query(month, format);
 }
 
+std::string ActionHandler::run_period_query(int days, ReportFormat format) {
+    if (!db_manager_->open_database_if_needed()) {
+        // 修正: 使用 std::string 进行字符串拼接
+        return std::string(RED_COLOR) + "错误: 无法打开数据库，查询操作中止。" + RESET_COLOR;
+    }
+    QueryHandler query_handler(db_manager_->get_db_connection());
+    return query_handler.run_period_query(days, format);
+}
+
+
 // =========================================================================
-//                      新的单个报告导出实现
+//                      报告导出实现 (委托模式 - 无变化)
 // =========================================================================
 
-void ActionHandler::run_export_single_day_report(const std::string& date, ReportFormat format) const {
-    if (!open_database_if_needed()) {
+void ActionHandler::run_export_single_day_report(const std::string& date, ReportFormat format) {
+    if (!db_manager_->open_database_if_needed()) {
         std::cerr << RED_COLOR << "错误: 无法打开数据库，导出日报操作已中止。" << RESET_COLOR << std::endl;
         return;
     }
-
-    std::string report_content = run_daily_query(date, format);
-    
-    if (report_content.empty() || report_content.find("No time records") != std::string::npos) {
-        std::cout << YELLOW_COLOR << "信息: 没有为日期 " << date << " 找到可导出的内容。" << RESET_COLOR << std::endl;
-        return;
+    if (!report_exporter_) {
+        report_exporter_ = std::make_unique<ReportExporter>(db_manager_->get_db_connection(), export_root_path_);
     }
-
-    auto format_details_opt = ExportUtils::get_report_format_details(format);
-    if (!format_details_opt) return;
-    const auto& format_details = *format_details_opt;
-
-    fs::path output_dir = export_root_path_ / format_details.dir_name / "daily";
-    fs::path output_path = output_dir / (date + format_details.extension);
-
-    try {
-        fs::create_directories(output_dir);
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << RED_COLOR << "错误: 创建目录失败: " << output_dir << " - " << e.what() << RESET_COLOR << std::endl;
-        return;
-    }
-
-    std::ofstream output_file(output_path);
-    if (!output_file) {
-        std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
-        return;
-    }
-    
-    output_file << report_content;
-    std::cout << GREEN_COLOR << "成功: 日报已成功导出到 " << fs::absolute(output_path) << RESET_COLOR << std::endl;
+    report_exporter_->run_export_single_day_report(date, format);
 }
 
-void ActionHandler::run_export_single_month_report(const std::string& month, ReportFormat format) const {
-    if (!open_database_if_needed()) {
+void ActionHandler::run_export_single_month_report(const std::string& month, ReportFormat format) {
+    if (!db_manager_->open_database_if_needed()) {
         std::cerr << RED_COLOR << "错误: 无法打开数据库，导出月报操作已中止。" << RESET_COLOR << std::endl;
         return;
     }
-    
-    std::string report_content = run_monthly_query(month, format);
-
-    if (report_content.empty() || report_content.find("No time records") != std::string::npos) {
-        std::cout << YELLOW_COLOR << "信息: 没有为月份 " << month << " 找到可导出的内容。" << RESET_COLOR << std::endl;
-        return;
+    if (!report_exporter_) {
+        report_exporter_ = std::make_unique<ReportExporter>(db_manager_->get_db_connection(), export_root_path_);
     }
-
-    auto format_details_opt = ExportUtils::get_report_format_details(format);
-    if (!format_details_opt) return;
-    const auto& format_details = *format_details_opt;
-
-    fs::path output_dir = export_root_path_ / format_details.dir_name / "monthly";
-    fs::path output_path = output_dir / (month + format_details.extension);
-
-    try {
-        fs::create_directories(output_dir);
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << RED_COLOR << "错误: 创建目录失败: " << output_dir << " - " << e.what() << RESET_COLOR << std::endl;
-        return;
-    }
-
-    std::ofstream output_file(output_path);
-    if (!output_file) {
-        std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
-        return;
-    }
-    
-    output_file << report_content;
-    std::cout << GREEN_COLOR << "成功: 月报已成功导出到 " << fs::absolute(output_path) << RESET_COLOR << std::endl;
+    report_exporter_->run_export_single_month_report(month, format);
 }
-void ActionHandler::run_export_single_period_report(int days, ReportFormat format) const {
-    if (!open_database_if_needed()) {
+
+void ActionHandler::run_export_single_period_report(int days, ReportFormat format) {
+    if (!db_manager_->open_database_if_needed()) {
         std::cerr << RED_COLOR << "错误: 无法打开数据库，导出周期报告操作已中止。" << RESET_COLOR << std::endl;
         return;
     }
-
-    std::string report_content = run_period_query(days, format);
-
-    if (report_content.empty() || report_content.find("No time records") != std::string::npos) {
-        std::cout << YELLOW_COLOR << "信息: 没有为 " << days << " 天周期找到可导出的内容。" << RESET_COLOR << std::endl;
-        return;
+    if (!report_exporter_) {
+        report_exporter_ = std::make_unique<ReportExporter>(db_manager_->get_db_connection(), export_root_path_);
     }
-    
-    auto format_details_opt = ExportUtils::get_report_format_details(format);
-    if (!format_details_opt) return;
-    const auto& format_details = *format_details_opt;
-
-    fs::path output_dir = export_root_path_ / format_details.dir_name / "periods";
-    fs::path output_path = output_dir / ("Last_" + std::to_string(days) + "_Days_Report" + format_details.extension);
-
-    try {
-        fs::create_directories(output_dir);
-    } catch (const fs::filesystem_error& e) {
-        std::cerr << RED_COLOR << "错误: 创建目录失败: " << output_dir << " - " << e.what() << RESET_COLOR << std::endl;
-        return;
-    }
-
-    std::ofstream output_file(output_path);
-    if (!output_file) {
-        std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
-        return;
-    }
-    
-    output_file << report_content;
-    std::cout << GREEN_COLOR << "成功: 周期报告已成功导出到 " << fs::absolute(output_path) << RESET_COLOR << std::endl;
+    report_exporter_->run_export_single_period_report(days, format);
 }
 
-void ActionHandler::run_export_all_daily_reports_query(ReportFormat format) const {
-    if (!open_database_if_needed()) {
+void ActionHandler::run_export_all_daily_reports_query(ReportFormat format) {
+    if (!db_manager_->open_database_if_needed()) {
         std::cerr << RED_COLOR << "错误: 无法打开数据库，导出操作已中止。" << RESET_COLOR << std::endl;
         return;
     }
-
-    QueryHandler query_handler(db_);
-    FormattedGroupedReports grouped_reports = query_handler.run_export_all_daily_reports_query(format);
-
-    if (grouped_reports.empty()) {
-        std::cout << YELLOW_COLOR << "信息: 数据库中没有可导出的日报内容。" << RESET_COLOR << std::endl;
-        return;
+    if (!report_exporter_) {
+        report_exporter_ = std::make_unique<ReportExporter>(db_manager_->get_db_connection(), export_root_path_);
     }
-
-    auto format_details_opt = ExportUtils::get_report_format_details(format);
-    if (!format_details_opt) {
-        return;
-    }
-    const auto& format_details = *format_details_opt;
-
-    // 使用成员变量替换硬编码的 "Export"
-    fs::path export_base_dir = export_root_path_ / format_details.dir_name / "days";    
-
-    auto daily_export_logic = [&]() -> int {
-        int files_created = 0;
-        for (const auto& year_pair : grouped_reports) {
-            int year = year_pair.first;
-            for (const auto& month_pair : year_pair.second) {
-                int month = month_pair.first;
-                std::stringstream month_ss;
-                month_ss << std::setw(2) << std::setfill('0') << month;
-                fs::path month_dir = export_base_dir / std::to_string(year) / month_ss.str();
-                fs::create_directories(month_dir);
-
-                for (const auto& report_pair : month_pair.second) {
-                    const std::string& date_str = report_pair.first;
-                    const std::string& report_content = report_pair.second;
-                    
-                    fs::path output_path = month_dir / (date_str + format_details.extension);
-                    std::ofstream output_file(output_path);
-                    if (!output_file) {
-                        std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
-                        continue;
-                    }
-                    output_file << report_content;
-                    files_created++;
-                }
-            }
-        }
-        return files_created;
-    };
-    
-    ExportUtils::execute_export_task("日报", export_base_dir, daily_export_logic);
+    report_exporter_->run_export_all_daily_reports_query(format);
 }
 
-void ActionHandler::run_export_all_monthly_reports_query(ReportFormat format) const {
-    if (!open_database_if_needed()) {
+void ActionHandler::run_export_all_monthly_reports_query(ReportFormat format) {
+    if (!db_manager_->open_database_if_needed()) {
         std::cerr << RED_COLOR << "错误: 无法打开数据库，导出操作已中止。" << RESET_COLOR << std::endl;
         return;
     }
-    QueryHandler query_handler(db_);
-    FormattedMonthlyReports grouped_reports = query_handler.run_export_all_monthly_reports_query(format);
-    if (grouped_reports.empty()) {
-        std::cout << YELLOW_COLOR << "信息: 数据库中没有可导出的月报内容。" << RESET_COLOR << std::endl;
-        return;
+    if (!report_exporter_) {
+        report_exporter_ = std::make_unique<ReportExporter>(db_manager_->get_db_connection(), export_root_path_);
     }
-    auto format_details_opt = ExportUtils::get_report_format_details(format);
-    if (!format_details_opt) return;
-    const auto& format_details = *format_details_opt;
-    fs::path export_base_dir = export_root_path_ / format_details.dir_name / "monthly";
-
-    auto monthly_export_logic = [&]() -> int {
-        int files_created = 0;
-        for (const auto& year_pair : grouped_reports) {
-            fs::path year_dir = export_base_dir / std::to_string(year_pair.first);
-            fs::create_directories(year_dir);
-            for (const auto& month_pair : year_pair.second) {
-                fs::path output_path = year_dir / ((std::stringstream() << year_pair.first << "_" << std::setw(2) << std::setfill('0') << month_pair.first).str() + format_details.extension);
-                std::ofstream output_file(output_path);
-                if (output_file) {
-                    output_file << month_pair.second;
-                    files_created++;
-                } else {
-                    std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
-                }
-            }
-        }
-        return files_created;
-    };
-    ExportUtils::execute_export_task("所有月报", export_base_dir, monthly_export_logic);
+    report_exporter_->run_export_all_monthly_reports_query(format);
 }
-void ActionHandler::run_export_all_period_reports_query(const std::vector<int>& days_list, ReportFormat format) const {
-    if (!open_database_if_needed()) {
+
+void ActionHandler::run_export_all_period_reports_query(const std::vector<int>& days_list, ReportFormat format) {
+    if (!db_manager_->open_database_if_needed()) {
         std::cerr << RED_COLOR << "错误: 无法打开数据库，导出操作已中止。" << RESET_COLOR << std::endl;
         return;
     }
-    QueryHandler query_handler(db_);
-    FormattedPeriodReports grouped_reports = query_handler.run_export_all_period_reports_query(days_list, format);
-    if (grouped_reports.empty()) {
-        std::cout << YELLOW_COLOR << "信息: 数据库中没有可导出的周期报告内容。" << RESET_COLOR << std::endl;
+    if (!report_exporter_) {
+        report_exporter_ = std::make_unique<ReportExporter>(db_manager_->get_db_connection(), export_root_path_);
+    }
+    report_exporter_->run_export_all_period_reports_query(days_list, format);
+}
+
+
+// =========================================================================
+//                      文件处理与导入
+// =========================================================================
+
+void ActionHandler::run_database_import(const std::string& processed_path_str) {
+    fs::path processed_path(processed_path_str);
+    if (!fs::exists(processed_path) || !fs::is_directory(processed_path)) {
+        std::cerr << RED_COLOR << "错误: " << RESET_COLOR << "路径不存在或不是目录。导入中止。" << std::endl;
         return;
     }
-    auto format_details_opt = ExportUtils::get_report_format_details(format);
-    if (!format_details_opt) return;
-    const auto& format_details = *format_details_opt;
-    fs::path export_base_dir = export_root_path_ / format_details.dir_name / "periods";
-    fs::create_directories(export_base_dir);
-
-    auto period_export_logic = [&]() -> int {
-        int files_created = 0;
-        for (const auto& report_pair : grouped_reports) {
-            fs::path output_path = export_base_dir / ("Last_" + std::to_string(report_pair.first) + "_Days_Report" + format_details.extension);
-            std::ofstream output_file(output_path);
-            if (output_file) {
-                output_file << report_pair.second;
-                files_created++;
-            } else {
-                std::cerr << RED_COLOR << "错误: 无法创建或打开文件: " << output_path << RESET_COLOR << std::endl;
-            }
-        }
-        return files_created;
-    };
-    ExportUtils::execute_export_task("所有周期报告", export_base_dir, period_export_logic);
-}
-
-void ActionHandler::printTimingStatistics(const std::string& operation_name, double total_time_ms) const {
-    double total_time_s = total_time_ms / 1000.0;
-
-    std::cout << "--------------------------------------\n";
-    std::cout << "Timing Statistics:\n";
-    std::cout << operation_name << "\n\n"; 
     
-    std::cout << "Total time: " << std::fixed << std::setprecision(4) << total_time_s 
-              << " seconds (" << total_time_ms << " ms)\n";
-              
-    std::cout << "--------------------------------------\n";
+    db_manager_->close_database();
+    
+    std::cout << "开始导入过程..." << std::endl;
+    // 修正: 使用存储在 ActionHandler 中的 db_name_ 成员
+    handle_process_files(db_name_, processed_path.string(), main_config_path_);
+    std::cout << "导入过程结束。" << std::endl;
 }
 
+// ... (其余方法保持不变) ...
+void ActionHandler::run_full_pipeline_and_import(const std::string& source_path) {
+    std::cout << "\n--- 开始完整流水线处理 ---" << std::endl;
+    db_manager_->close_database();
+
+    if (!collectFiles(source_path) || !validateSourceFiles() || !convertFiles() || !validateOutputFiles(true)) {
+        std::cerr << RED_COLOR << "错误: 文件处理流水线失败，操作终止。" << RESET_COLOR << std::endl;
+        return;
+    }
+
+    fs::path output_root_path = input_root_.parent_path() / ("Processed_" + input_root_.filename().string());
+    run_database_import(output_root_path.string());
+    
+    std::cout << GREEN_COLOR << "\n成功: 完整流水线处理完毕并已导入数据。" << RESET_COLOR << std::endl;
+}
+
+bool ActionHandler::collectFiles(const std::string& input_path) {
+    input_root_ = fs::path(input_path);
+    if (!fs::exists(input_root_)) {
+        std::cerr << RED_COLOR << "错误: 输入的路径不存在: " << input_path << RESET_COLOR << std::endl;
+        return false;
+    }
+
+    files_to_process_.clear(); 
+    source_to_output_map_.clear(); 
+
+    files_to_process_ = FileUtils::find_files_by_extension_recursively(input_root_, ".txt");
+
+    if (fs::is_regular_file(input_root_) && input_root_.extension() == ".txt") {
+        if (files_to_process_.empty()) {
+            files_to_process_.push_back(input_root_);
+        }
+    }
+
+    std::cout << "信息: 成功收集到 " << files_to_process_.size() << " 个待处理文件。" << std::endl;
+    return !files_to_process_.empty();
+}
 
 bool ActionHandler::validateSourceFiles() {
     const std::string current_operation_name = "validateSourceFiles";
@@ -331,7 +213,6 @@ bool ActionHandler::validateSourceFiles() {
     std::cout << (all_ok ? GREEN_COLOR : RED_COLOR) << "源文件检验阶段 " << (all_ok ? "全部通过" : "存在失败项") << "。" << RESET_COLOR << std::endl;
     return all_ok;
 }
-
 
 bool ActionHandler::convertFiles() {
     const std::string current_operation_name = "convertFiles";
@@ -379,8 +260,6 @@ bool ActionHandler::convertFiles() {
     return all_ok;
 }
 
-
-
 bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
     const std::string current_operation_name = "validateOutputFiles";
     std::cout << "\n--- 阶段: 检验输出文件 ---" << std::endl;
@@ -411,91 +290,12 @@ bool ActionHandler::validateOutputFiles(bool enable_day_count_check) {
     return all_ok;
 }
 
-
-bool ActionHandler::collectFiles(const std::string& input_path) {
-    input_root_ = fs::path(input_path);
-    if (!fs::exists(input_root_)) {
-        std::cerr << RED_COLOR << "错误: 输入的路径不存在: " << input_path << RESET_COLOR << std::endl;
-        return false;
-    }
-
-    files_to_process_.clear(); 
-    source_to_output_map_.clear(); 
-
-    files_to_process_ = FileUtils::find_files_by_extension_recursively(input_root_, ".txt");
-
-    if (fs::is_regular_file(input_root_) && input_root_.extension() == ".txt") {
-        if (files_to_process_.empty()) {
-            files_to_process_.push_back(input_root_);
-        }
-    }
-
-    std::cout << "信息: 成功收集到 " << files_to_process_.size() << " 个待处理文件。" << std::endl;
-    return !files_to_process_.empty();
-}
-
-void ActionHandler::run_database_import(const std::string& processed_path_str) {
-    fs::path processed_path(processed_path_str);
-    if (!fs::exists(processed_path) || !fs::is_directory(processed_path)) {
-        std::cerr << RED_COLOR << "Error: " << RESET_COLOR << "Path does not exist or is not a directory. Aborting import." << std::endl;
-        return;
-    }
-    close_database();
-    std::cout << "Starting import process..." << std::endl;
-    handle_process_files(db_name_, processed_path.string(), main_config_path_);
-    std::cout << "Import process finished." << std::endl;
-}
-
-void ActionHandler::run_full_pipeline_and_import(const std::string& source_path) {
-    std::cout << "\n--- 开始完整流水线处理 ---" << std::endl;
-    close_database();
-
-    if (!collectFiles(source_path)) {
-        std::cerr << RED_COLOR << "错误: 文件收集失败，流水线终止。" << RESET_COLOR << std::endl;
-        return;
-    }
-
-    if (!validateSourceFiles()) {
-        std::cerr << RED_COLOR << "错误: 源文件检验失败，流水线终止。" << RESET_COLOR << std::endl;
-        return;
-    }
-
-    if (!convertFiles()) {
-        std::cerr << RED_COLOR << "错误: 文件转换失败，流水线终止。" << RESET_COLOR << std::endl;
-        return;
-    }
-
-    if (!validateOutputFiles(true)) {
-        std::cerr << RED_COLOR << "错误: 输出文件检验失败，流水线终止。" << RESET_COLOR << std::endl;
-        return;
-    }
-
-    fs::path output_root_path = input_root_.parent_path() / ("Processed_" + input_root_.filename().string());
-    run_database_import(output_root_path.string());
-    
-    std::cout << GREEN_COLOR << "\n成功: 完整流水线处理完毕并已导入数据。" << RESET_COLOR << std::endl;
-}
-
-
-bool ActionHandler::open_database_if_needed() const {
-    if (db_ == nullptr) {
-        if (!fs::exists(db_name_)) {
-            std::cerr << RED_COLOR << "错误: 数据库文件 '" << db_name_ << "' 不存在。请先导入数据。" << RESET_COLOR << std::endl;
-            return false;
-        }
-        if (sqlite3_open(db_name_.c_str(), (sqlite3**)&db_)) {
-            std::cerr << RED_COLOR << "错误: 无法打开数据库 " << db_name_ << ": " << sqlite3_errmsg(db_) << RESET_COLOR << std::endl;
-            sqlite3_close(db_);
-            db_ = nullptr;
-            return false;
-        }
-    }
-    return true;
-}
-
-void ActionHandler::close_database() {
-    if (db_) {
-        sqlite3_close(db_);
-        db_ = nullptr;
-    }
+void ActionHandler::printTimingStatistics(const std::string& operation_name, double total_time_ms) const {
+    double total_time_s = total_time_ms / 1000.0;
+    std::cout << "--------------------------------------\n";
+    std::cout << "Timing Statistics:\n";
+    std::cout << operation_name << "\n\n"; 
+    std::cout << "Total time: " << std::fixed << std::setprecision(4) << total_time_s 
+              << " seconds (" << total_time_ms << " ms)\n";
+    std::cout << "--------------------------------------\n";
 }
