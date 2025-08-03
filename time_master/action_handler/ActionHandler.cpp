@@ -1,7 +1,10 @@
-#include "action_handler/ActionHandler.h"
-#include "action_handler/DatabaseManager.h" 
-#include "action_handler/ReportExporter.h"  
-#include "queries/QueryHandler.h"          // 引入 QueryHandler 以执行直接查询
+#include "common/pch.h"
+#include "ActionHandler.h"
+
+
+#include "action_handler/database/DatabaseManager.h"
+#include "action_handler/reporting/ReportExporter.h"
+#include "action_handler/query/DirectQueryManager.h" // 新增: 引入新的查询管理器
 #include "db_inserter/DataImporter.h"
 #include "common/common_utils.h"
 #include "file_handler/FileUtils.h"
@@ -30,33 +33,55 @@ ActionHandler::~ActionHandler() = default;
 //                      直接查询实现
 // =========================================================================
 
-std::string ActionHandler::run_daily_query(const std::string& date, ReportFormat format) {
+/**
+ * @brief 执行单日查询，并将查询任务委托给 DirectQueryManager
+ */
+ std::string ActionHandler::run_daily_query(const std::string& date, ReportFormat format) {
+    // 检查数据库连接是否可用
     if (!db_manager_->open_database_if_needed()) {
-        // 修正: 使用 std::string 进行字符串拼接
         return std::string(RED_COLOR) + "错误: 无法打开数据库，查询操作中止。" + RESET_COLOR;
     }
-    QueryHandler query_handler(db_manager_->get_db_connection());
-    return query_handler.run_daily_query(date, format);
+    // 懒加载: 如果直接查询管理器尚未创建，则创建它
+    if (!direct_query_manager_) {
+        direct_query_manager_ = std::make_unique<DirectQueryManager>(db_manager_->get_db_connection());
+    }
+
+    // 通过 DirectQueryManager 执行查询
+    return direct_query_manager_->run_daily_query(date, format);
 }
 
-std::string ActionHandler::run_monthly_query(const std::string& month, ReportFormat format) {
+/**
+ * @brief 执行单月查询，并将查询任务委托给 DirectQueryManager
+ */
+ std::string ActionHandler::run_monthly_query(const std::string& month, ReportFormat format) {
+    // 检查数据库连接是否可用
     if (!db_manager_->open_database_if_needed()) {
-        // 修正: 使用 std::string 进行字符串拼接
         return std::string(RED_COLOR) + "错误: 无法打开数据库，查询操作中止。" + RESET_COLOR;
     }
-    QueryHandler query_handler(db_manager_->get_db_connection());
-    return query_handler.run_monthly_query(month, format);
+
+    // 懒加载: 如果直接查询管理器尚未创建，则创建它
+    if (!direct_query_manager_) {
+        direct_query_manager_ = std::make_unique<DirectQueryManager>(db_manager_->get_db_connection());
+    }
+
+    // 通过 DirectQueryManager 执行查询
+    return direct_query_manager_->run_monthly_query(month, format);
 }
 
 std::string ActionHandler::run_period_query(int days, ReportFormat format) {
+    // 检查数据库连接是否可用
     if (!db_manager_->open_database_if_needed()) {
-        // 修正: 使用 std::string 进行字符串拼接
         return std::string(RED_COLOR) + "错误: 无法打开数据库，查询操作中止。" + RESET_COLOR;
     }
-    QueryHandler query_handler(db_manager_->get_db_connection());
-    return query_handler.run_period_query(days, format);
-}
 
+    // 懒加载: 如果直接查询管理器尚未创建，则创建它
+    if (!direct_query_manager_) {
+        direct_query_manager_ = std::make_unique<DirectQueryManager>(db_manager_->get_db_connection());
+    }
+
+    // 通过 DirectQueryManager 执行查询
+    return direct_query_manager_->run_period_query(days, format);
+}
 
 // =========================================================================
 //                      报告导出实现 (委托模式 - 无变化)
