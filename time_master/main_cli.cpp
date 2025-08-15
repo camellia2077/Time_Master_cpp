@@ -1,9 +1,10 @@
 #include "common/pch.h"
-#include <iostream>
+#include <iostream> // 为使用 std::cerr 添加
+#include <print>
 #include <string>
 #include <vector>
 #include <stdexcept>
-#include <print>
+
 
 // --- Windows-specific include for console functions ---
 #if defined(_WIN32) || defined(_WIN64)
@@ -55,11 +56,13 @@ int main(int argc, char* argv[]) {
         CliController controller(args);
         controller.execute();
     } catch (const std::exception& e) {
-        std::cerr << RED_COLOR << "Error: " << RESET_COLOR << e.what() << std::endl;
+        // 使用 std::println 将格式化的错误信息输出到 std::cerr
+        std::println(std::cerr, "{}{}{}{}", RED_COLOR, "Error: ", RESET_COLOR, e.what());
+        
         // Optionally show usage for command-related errors
         if (std::string(e.what()).find("command") != std::string::npos || 
             std::string(e.what()).find("argument") != std::string::npos) {
-             std::cout << "\nUse '" << args[0] << " --help' for more information.\n";
+             std::println("\nUse '{}' for more information.", args[0]);
         }
         return 1;
     }
@@ -68,54 +71,54 @@ int main(int argc, char* argv[]) {
 }
 
 void print_full_usage(const char* app_name) {
-    std::cout << "TimeMaster: A command-line tool for time data pre-processing, import, and querying.\n\n";
-    std::cout << "Usage: " << app_name << " <command> [arguments...] [options...]\n\n";
-
-    std::cout << GREEN_COLOR << "--- Core Commands ---\n" << RESET_COLOR;
-    std::cout << "  run-all <path>\t\t Execute full pipeline: validate source, convert, and import into database.\n";
-    std::cout << "  preprocess <path>\t\t Manually run pre-processing steps on source files.\n";
-    std::cout << "  import <path>\t\t\t Import pre-processed .txt files into the database.\n";
-    std::cout << "  query <type> <period>\t\t Query data from the database.\n";
-    std::cout << "  export <type> <period>\t Export reports from the database.\n\n";
-
-    std::cout << GREEN_COLOR << "--- Command: preprocess ---\n" << RESET_COLOR;
-    std::cout << "  Usage: " << app_name << " preprocess <file_or_folder_path> [options...]\n";
-    std::cout << "  Options:\n";
-    std::cout << "    --validate-source, -vs\t Validates the source file format.\n";
-    std::cout << "    --convert, -c\t\t Converts the source file to the processed format.\n";
-    std::cout << "    --validate-output, -vo\t Validates the output file after conversion (requires -c).\n";
-    std::cout << "    --enable-day-check, -edc\t Enable check for day completeness in a month (requires -vo).\n";
-    std::cout << "  Example: " << app_name << " preprocess /path/to/logs --convert --validate-output\n\n";
-
-    std::cout << GREEN_COLOR << "--- Command: import ---\n" << RESET_COLOR;
-    std::cout << "  Usage: " << app_name << " import <directory_path>\n";
-    std::cout << "  Example: " << app_name << " import /path/to/processed_logs/\n\n";
+    std::println("{}TimeMaster{}: A command-line tool for time data pre-processing, import, and querying.\n",GREEN_COLOR,RESET_COLOR);
+    std::println("Usage: {} <command>[arguments...] [options...]\n", app_name);
     
-    std::cout << GREEN_COLOR << "--- Command: query ---\n" << RESET_COLOR;
-    std::cout << "  Usage: " << app_name << " query <type> <argument> [options...]\n";
-    std::cout << "  Types:\n";
-    std::cout << "    daily <YYYYMMDD>\t\t Query statistics for a specific day.\n";
-    std::cout << "    monthly <YYYYMM>\t\t Query statistics for a specific month.\n";
-    std::cout << "    period <days>\t\t Query statistics for last N days. Can be a list (e.g., 7,30).\n";
-    std::cout << "  Options (for all query types):\n";
-    std::cout << "    --format, -f <format>\t Specify output format (md, tex, typ). Default: md.\n";
-    std::cout << "  Example: " << app_name << " query daily 20240101 --format tex\n\n";
-    
-    std::cout << GREEN_COLOR << "--- Command: export ---\n" << RESET_COLOR;
-    std::cout << "  Usage: " << app_name << " export <type> [argument] [options...]\n";
-    std::cout << "  Types:\n";
-    std::cout << "    daily <YYYYMMDD>\t\t Export a single daily report.\n";
-    std::cout << "    monthly <YYYYMM>\t\t Export a single monthly report.\n";
-    std::cout << "    period <days>\t\t Export a single period report (e.g., 7).\n";
-    std::cout << "    all-daily\t\t\t Export all daily reports.\n";
-    std::cout << "    all-monthly\t\t\t Export all monthly reports.\n";
-    std::cout << "    all-period <days_list>\t Export multiple period reports (e.g., 7,30,90).\n";
-    std::cout << "  Options (for all export types):\n";
-    std::cout << "    --format, -f <format>\t Specify output format (md, tex, typ). Default: md.\n";
-    std::cout << "  Example: " << app_name << " export daily 20240115 --format tex\n";
-    std::cout << "  Example: " << app_name << " export all-monthly --format tex\n\n";
+    std::println("{}{}{}", GREEN_COLOR, "--- Core Commands ---", RESET_COLOR);
+    std::println("  run-all <path>\t\t Execute full pipeline: validate source, convert, and import into database.");
+    std::println("  preprocess <path>\t\t Manually run pre-processing steps on source files.");
+    std::println("  import <path>\t\t\t Import pre-processed .txt files into the database.");
+    std::println("  query <type> <period>\t\t Query data from the database.");
+    std::println("  export <type> <period>\t Export reports from the database.\n");
 
-    std::cout << GREEN_COLOR << "--- Other Options ---\n" << RESET_COLOR;
-    std::cout << "  --help, -h\t\t\t Show this help message.\n";
-    std::cout << "  --version, -v\t\t\t Show program version.\n";
+    std::println("{}{}{}", GREEN_COLOR, "--- Command: preprocess ---", RESET_COLOR);
+    std::println("  Usage: {} preprocess <file_or_folder_path> [options...]", app_name);
+    std::println("  Options:");
+    std::println("    --validate-source, -vs\t Validates the source file format.");
+    std::println("    --convert, -c\t\t Converts the source file to the processed format.");
+    std::println("    --validate-output, -vo\t Validates the output file after conversion (requires -c).");
+    std::println("    --enable-day-check, -edc\t Enable check for day completeness in a month (requires -vo).");
+    std::println("  Example: {} preprocess /path/to/logs --convert --validate-output\n", app_name);
+
+    std::println("{}{}{}", GREEN_COLOR, "--- Command: import ---", RESET_COLOR);
+    std::println("  Usage: {} import <directory_path>", app_name);
+    std::println("  Example: {} import /path/to/processed_logs/\n", app_name);
+    
+    std::println("{}{}{}", GREEN_COLOR, "--- Command: query ---", RESET_COLOR);
+    std::println("  Usage: {} query <type> <argument> [options...]", app_name);
+    std::println("  Types:");
+    std::println("    daily <YYYYMMDD>\t\t Query statistics for a specific day.");
+    std::println("    monthly <YYYYMM>\t\t Query statistics for a specific month.");
+    std::println("    period <days>\t\t Query statistics for last N days. Can be a list (e.g., 7,30).");
+    std::println("  Options (for all query types):");
+    std::println("    --format, -f <format>\t Specify output format (md, tex, typ). Default: md.");
+    std::println("  Example: {} query daily 20240101 --format tex\n", app_name);
+    
+    std::println("{}{}{}", GREEN_COLOR, "--- Command: export ---", RESET_COLOR);
+    std::println("  Usage: {} export <type> [argument] [options...]", app_name);
+    std::println("  Types:");
+    std::println("    daily <YYYYMMDD>\t\t Export a single daily report.");
+    std::println("    monthly <YYYYMM>\t\t Export a single monthly report.");
+    std::println("    period <days>\t\t Export a single period report (e.g., 7).");
+    std::println("    all-daily\t\t\t Export all daily reports.");
+    std::println("    all-monthly\t\t\t Export all monthly reports.");
+    std::println("    all-period <days_list>\t Export multiple period reports (e.g., 7,30,90).");
+    std::println("  Options (for all export types):");
+    std::println("    --format, -f <format>\t Specify output format (md, tex, typ). Default: md.");
+    std::println("  Example: {} export daily 20240115 --format tex", app_name);
+    std::println("  Example: {} export all-monthly --format tex\n", app_name);
+
+    std::println("{}{}{}", GREEN_COLOR, "--- Other Options ---", RESET_COLOR);
+    std::println("  --help, -h\t\t\t Show this help message.");
+    std::println("  --version, -v\t\t\t Show program version.");
 }
