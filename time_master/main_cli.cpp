@@ -86,7 +86,8 @@ void print_full_usage(const char* app_name) {
     std::println("  Options:");
     std::println("    --validate-source, -vs\t Validates the source file format.");
     std::println("    --convert, -c\t\t Converts the source file to the processed format.");
-    std::println("    --validate-output, -vo\t Validates the output file after conversion (requires -c).");
+    // [修改 3] 更新帮助文本
+    std::println("    --validate-output, -vo\t Validates the processed/output file format.");
     std::println("    --enable-day-check, -edc\t Enable check for day completeness in a month (requires -vo).");
     std::println("  Example: {} preprocess /path/to/logs --convert --validate-output\n", app_name);
 
