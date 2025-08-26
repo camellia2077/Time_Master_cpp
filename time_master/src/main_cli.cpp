@@ -11,9 +11,9 @@
 #include <windows.h>
 #endif
 
-#include "common/common_utils.h"
-#include "common/version.h"
-#include "time_master_cli/CliController.h"
+#include "common/common_utils.hpp"
+#include "common/version.hpp"
+#include "time_master_cli/CliController.hpp"
 
 // --- Function Declarations ---
 void print_full_usage(const char* app_name);
