@@ -87,14 +87,17 @@ void print_full_usage(const char* app_name) {
     std::println("  query <type> <period>\t\t Query data from the database.");
     std::println("  export <type> <period>\t Export reports from the database.\n");
 
+    // ======================= 核心修改 1/3 =======================
     std::println("{}{}{}", GREEN_COLOR, "--- Pre-processing Commands ---", RESET_COLOR);
-    std::println("  validate-source <path>\t Validates the source file format (e.g., .txt files).");
+    std::println("  validate-source <path>\t Validates the source file format (e.g., .txt files) (read-only).");
     std::println("  convert <path>\t\t Converts source files to the processed JSON format.");
-    std::println("  validate-output <path>\t Validates the processed JSON file format and logic.");
-    std::println("    Options for validate-output:");
-    std::println("      --enable-day-check, -edc\t Enable check for day completeness in a month.");
+    std::println("  validate-output <path>\t Validates the processed JSON file format and logic (read-only).");
+    std::println("  \tNote: Validation commands do not produce output; the --output option has no effect on them.");
+    std::println("  Options for validate-output:");
+    std::println("    --enable-day-check, -edc\t Enable check for day completeness in a month.");
     std::println("  Example: {} convert /path/to/logs", app_name);
     std::println("  Example: {} validate-output /path/to/processed/log.json --enable-day-check\n", app_name);
+    // =========================================================
 
     std::println("{}{}{}", GREEN_COLOR, "--- Command: import ---", RESET_COLOR);
     std::println("  Usage: {} import <directory_path>", app_name);
@@ -106,7 +109,9 @@ void print_full_usage(const char* app_name) {
     std::println("    daily <YYYYMMDD>\t\t Query statistics for a specific day.");
     std::println("    monthly <YYYYMM>\t\t Query statistics for a specific month.");
     std::println("    period <days>\t\t Query statistics for last N days. Can be a list (e.g., 7,30).");
-    std::println("  Options (for all query types):");
+    // ======================= 核心修改 2/3 =======================
+    std::println("  Options (for commands that produce output):");
+    // =========================================================
     std::println("    --format, -f <format>\t Specify output format (md, tex, typ). Default: md.");
     std::println("  Example: {} query daily 20240101 --format tex\n", app_name);
     
@@ -119,9 +124,10 @@ void print_full_usage(const char* app_name) {
     std::println("    all-daily\t\t\t Export all daily reports.");
     std::println("    all-monthly\t\t\t Export all monthly reports.");
     std::println("    all-period <days_list>\t Export multiple period reports (e.g., 7,30,90).");
-    std::println("  Options (for all commands):"); // 选项现在是全局的
+    // ======================= 核心修改 3/3 =======================
+    std::println("  Options (for commands that produce output):");
+    // =========================================================
     std::println("    --format, -f <format>\t Specify output format for query/export (md, tex, typ). Default: md.");
-    // 修改下面这行
     std::println("    --output, -o <path>\t\t Specify the directory for formatted reports (e.g., .md, .tex).");
     std::println("\t\t\t\t All program outputs (database, converted files) will be placed");
     std::println("\t\t\t\t in the parent directory of this path.");
