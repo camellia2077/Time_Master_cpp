@@ -11,7 +11,7 @@
 #include <windows.h>
 #endif
 
-#include "common/common_utils.hpp"
+#include "common/AnsiColors.hpp" // 使用宏定义的颜色代码
 #include "common/version.hpp"
 #include "time_master_cli/CliController.hpp"
 
